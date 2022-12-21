@@ -1,0 +1,30 @@
+# data path
+data_path: ontime/data
+
+# schedule
+schedule:
+  filename: 2022-11-29TableMapping_Reliability-SCHEDULE_RELIABILITY_PP.csv
+
+# port call
+port_call:
+  filename: IHS_PORT_PERFORMANCE.xlsx
+  sheet: Sheet1
+
+# retail sales
+sales:
+  filename: Retail Sales 202210.xlsx
+  sheet: Sales
+
+# consumer price index
+cpi:
+  filename: CPI Core 202210.xlsx
+  sheet: Core CPI
+
+# air freight
+air_freight:
+  filename: AirFrieght total Rate USD per 1000kg Shanghai to Los angeles.xlsx
+  sheet: Sheet1
+
+# freight
+
+# there are too many
