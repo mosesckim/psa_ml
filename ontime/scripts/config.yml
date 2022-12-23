@@ -27,4 +27,15 @@ air_freight:
 
 # freight
 
-# there are too many
+# evaluation
+eval:
+  split_month: 8
+  label: "Avg_TTDays"
+  partial_pred: True
+  overall_pred: True
+  eval_lin_reg: False
+  include_reg: True
+
+  carrier_option: "ANL"
+  service_option: "EPIC"
+
