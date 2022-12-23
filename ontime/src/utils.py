@@ -1,7 +1,12 @@
 import datetime
 
 import pandas as pd
+import numpy as np
 
+import xgboost as xgb
+
+
+from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 
 # process data
 def process_schedule_data(schedule_data):
@@ -120,3 +125,337 @@ def get_carr_serv_mask(df, carrier, service):
 
     return (df["Carrier"]==carrier) & \
         (df["Service"]==service)
+
+
+def get_reg_train_test(df, datetime_split, label='Avg_TTDays', use_retail=False):
+
+    df = add_delay_column(df)
+
+    date_column = "Date"
+    # train
+    train = df[df[date_column] < datetime_split]
+
+    train_wt_mean = get_train_wt_avg(train, datetime_split, label=label)
+
+    train_wt_mean.columns = [
+        'Carrier',
+        'Service',
+        'POD',
+        'POL',
+        f'{label}_train',
+        f'{label}(std)_train'
+    ]
+
+    train_min = get_train_wt_avg(train, datetime_split, label=label, agg_fun=np.min)
+    train_min.columns = [
+        'Carrier',
+        'Service',
+        'POD',
+        'POL',
+        f'{label}_min_train',
+        f'{label}(std)_min_train'
+    ]
+
+
+
+    train_max = get_train_wt_avg(train, datetime_split, label=label, agg_fun=np.max)
+    train_max.columns = [
+        'Carrier',
+        'Service',
+        'POD',
+        'POL',
+        f'{label}_max_train',
+        f'{label}(std)_max_train'
+    ]
+
+
+    train = train_wt_mean.merge(train, on=[
+        'Carrier',
+        'Service',
+        'POD',
+        'POL'
+    ])
+
+    train = train_min.merge(train, on=[
+        'Carrier',
+        'Service',
+        'POD',
+        'POL'
+    ])
+
+    train = train_max.merge(train, on=[
+        'Carrier',
+        'Service',
+        'POD',
+        'POL'
+    ])
+
+    # val
+    val = df[df[date_column] >= datetime_split]
+
+    #
+    val = train_wt_mean.merge(val, on=[
+        'Carrier',
+        'Service',
+        'POD',
+        'POL'
+    ])
+
+    val = train_min.merge(val, on=[
+        'Carrier',
+        'Service',
+        'POD',
+        'POL'
+    ])
+
+    val = train_max.merge(val, on=[
+        'Carrier',
+        'Service',
+        'POD',
+        'POL'
+    ])
+
+    # predictors
+
+    if not use_retail:
+        predictors = [
+            "POL",
+            "POD",
+            "Carrier",
+            "Service",
+            "Trade",
+            "Avg_Port_Hours(by_call)",
+            "Avg_Anchorage_Hours(by_call)",
+            f"{label}_train",
+            f"{label}(std)_train",
+            f"{label}_min_train",
+            f"{label}_max_train",
+            "delay"
+        ]
+    else:
+
+        train.rename(columns={"retail_sales_x": "retail_sales"}, inplace=True)
+        val.rename(columns={"retail_sales_x": "retail_sales"}, inplace=True)
+
+        # drop retail sales na values
+        train = train[~train["retail_sales"].isna()]
+        val = val[~val["retail_sales"].isna()]
+
+        predictors = [
+            "POL",
+            "POD",
+            "Carrier",
+            "Service",
+            "Trade",
+            "retail_sales",
+            f"{label}_train",
+            f"{label}(std)_train",
+            f"{label}_min_train",
+            f"{label}_max_train",
+        ]
+
+
+    train_X, train_y = train[predictors], train[label]
+    val_X, val_y = val[predictors], val[label]
+
+    return train_X, train_y, val_X, val_y
+
+
+def get_train_wt_avg(rel_df_nona, datetime_split, label="Avg_TTDays", agg_fun=weighted_average_ser):
+
+    train = rel_df_nona[rel_df_nona["Date"] < datetime_split]
+
+    # weighted average
+    train_on_time_rel_by_carr_ser = train[[
+        "Carrier", "Service", "POD", "POL", label,
+    ]].groupby(["Carrier", "Service", "POD", "POL"]).apply(lambda x: (agg_fun(x[label].values), x[label].values.std())).reset_index()
+
+    train_on_time_rel_by_carr_ser.loc[:, f"{label}"] = train_on_time_rel_by_carr_ser[0].apply(lambda x: x[0])
+    train_on_time_rel_by_carr_ser.loc[:, f"{label}(std)"] = train_on_time_rel_by_carr_ser[0].apply(lambda x: x[1])
+
+    train_on_time_rel_by_carr_ser.drop(0, axis=1, inplace=True)
+
+    train_df = train_on_time_rel_by_carr_ser.copy()
+
+    return train_df
+
+
+def add_delay_column(df):
+
+    df.loc[:, "delay"] = (df["OnTime_Reliability"]==0).apply(
+        lambda x: "delay" if x else "non-delay"
+    )
+
+    df = gen_lag(
+        df,
+        target_cols=["delay"]
+    )
+
+    return df
+
+
+def gen_lag(
+    df,
+    lag=1,
+    lag_col="Month(int)",
+    target_cols=["OnTime_Reliability"],
+    common_cols=["Carrier", "Service", "POL", "POD", "Trade", "Month(int)"]
+):
+
+    """Generate month lag on a target column by some number of months.
+    """
+
+    # make a copy of dataframe
+    # to apply lag
+    df_lag = df.copy()
+
+    # apply lag
+    df_lag.loc[:, lag_col] += 1
+
+    # rename the target columns
+
+    for target_col in target_cols:
+        new_col_name = f"{target_col}_lag_{lag}"
+        df_lag.loc[:, new_col_name] = df_lag[target_col]
+        df_lag.drop(target_col, inplace=True, axis=1)
+
+    # get common cols to merge on
+    # common_cols = ["POL", "POD", "Carrier", "Service"]
+
+    # now merge lagged feature onto original df
+
+    df_with_lag_feature = df.merge(df_lag, on=common_cols)
+
+    df_with_lag_feature.rename(
+
+        columns={
+            "Date_x": "Date",
+            "Avg_TTDays_x": "Avg_TTDays",
+            "Avg_WaitTime_POD_Days_x": "Avg_WaitTime_POD_Days",
+            "Avg_Port_Hours(by_call)_x": "Avg_Port_Hours(by_call)",
+            "Avg_Anchorage_Hours(by_call)_x": "Avg_Anchorage_Hours(by_call)"
+        },
+        inplace=True
+    )
+
+    return df_with_lag_feature
+
+
+def compute_train_val_mae(
+    model,
+    train_X,
+    val_X,
+    train_y,
+    val_y,
+    is_xgboost=False,
+    calc_mape=False,
+    label="Avg_TTDays"
+):
+
+    train_X_rg, val_X_rg = compute_common_cols(train_X, val_X)
+
+    if is_xgboost:
+        data_dmatrix = xgb.DMatrix(data=train_X_rg, label=train_y)
+        model = xgb.XGBRegressor(
+            objective='reg:linear',
+            colsample_bytree=0.3,
+            learning_rate=0.1,
+            max_depth=5,
+            alpha=10,
+            n_estimators=10
+        )
+
+    # fit model
+    model.fit(train_X_rg, train_y)
+
+    # need to make sure reliability predictions are capped at 100 and 0
+    train_preds = list(map(lambda x: 100 if x >= 100 else x, model.predict(train_X_rg)))
+    val_preds = list(map(lambda x: 100 if x >= 100 else x, model.predict(val_X_rg)))
+
+    train_preds = list(map(lambda x: 0 if x<=0 else x, train_preds))
+    val_preds = list(map(lambda x: 0 if x<=0 else x, val_preds))
+
+
+    preds_array = np.array(val_preds)
+
+    nonzero_mask = val_y != 0
+    nonzero_mask = nonzero_mask.reset_index()[label]
+
+
+    # filtering zero wait time
+    if sum(nonzero_mask) != 0:
+
+        preds = pd.Series(val_preds)[nonzero_mask]
+
+        val_y = val_y.reset_index()[label]
+        val_y = val_y[nonzero_mask]
+
+        val_X = val_X.reset_index().drop("index", axis=1)
+        val_X = val_X[nonzero_mask]
+
+        preds_array = np.array(preds)
+
+        val_gt = val_y.values
+
+        val_mae = mean_absolute_error(val_gt, preds_array)
+        val_mape = mean_absolute_percentage_error(val_gt, preds_array)
+
+    # evaluate
+    # train MAE
+    train_mae = mean_absolute_error(train_y, train_preds)
+    # val MAE
+    diff = preds_array - val_y
+    mask = diff > 0
+    val_mae_over = diff[mask].mean()
+
+
+    # mape
+    if calc_mape:
+        # val_mape = mean_absolute_percentage_error(val_y, val_preds)
+        mask_ser = mask.reset_index()[label]
+        val_preds_over = pd.Series(preds_array)[mask_ser]
+        # val_preds_over = pd.Series(val_preds)[mask_ser]
+        val_y_over = pd.Series(list(val_y))[mask_ser]
+        # val_y_over = pd.Series(list(val_y))[mask_ser]
+        val_mape_over = mean_absolute_percentage_error(val_y_over, val_preds_over)
+
+
+        result_df = val_X.copy()
+        result_df.loc[:, "actual"] = val_y
+        result_df.loc[:, "pred"] = preds_array
+        result_df.loc[:, "error"] = preds_array - val_y
+        result_df.loc[:, "perc_error"] = (preds - val_y) / val_y
+
+        result_df = result_df[
+            [
+                "Carrier",
+                "Service",
+                "POD",
+                "POL",
+                "actual",
+                "pred",
+                "error",
+                "perc_error"
+            ]
+        ]
+
+        return val_mae, val_mape, val_mae_over, val_mape_over, result_df
+
+    return val_mae, val_mape
+
+
+# we need to restrict to common inputs
+def compute_common_cols(train_X, val_X):
+    "Return train and val restricted to common cols"
+    # get dummies for categorical variables
+    train_X_rg = pd.get_dummies(train_X)
+    val_X_rg = pd.get_dummies(val_X)
+
+    # restrict to common columns
+    common_cols = list(
+        set(train_X_rg.columns).intersection(
+            set(val_X_rg.columns)
+        )
+    )
+
+    return train_X_rg[common_cols], val_X_rg[common_cols]
