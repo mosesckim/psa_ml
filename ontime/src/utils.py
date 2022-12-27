@@ -1,4 +1,5 @@
 import datetime
+import os
 
 import pandas as pd
 import numpy as np
@@ -71,12 +72,20 @@ def restrict_by_coverage(rel_df_nona, min_no_months=9):
     return rel_df_nona.iloc[new_indices, :]
 
 
-def split_data(rel_df_nona, datetime_split, label="Avg_TTDays"):
+def split_data(rel_df_nona, datetime_split, label="Avg_TTDays", max_month=9):
 
+    month_thresh = datetime.datetime(2022, max_month, 1)
     # train
     train = rel_df_nona[rel_df_nona["Date"] < datetime_split]
-    # val
-    val = rel_df_nona[rel_df_nona["Date"] >= datetime_split]
+
+    # # val
+    # val = rel_df_nona[rel_df_nona["Date"] >= datetime_split]
+
+    val = rel_df_nona[
+        (rel_df_nona["Date"] >= datetime_split) &
+        (rel_df_nona["Date"] <= month_thresh)
+    ]
+
 
     # let's get multi-index pairs from train
     train_indices = list(
@@ -85,7 +94,7 @@ def split_data(rel_df_nona, datetime_split, label="Avg_TTDays"):
         ].groupby(["Carrier", "Service", "POD", "POL"]).mean().index
     )
 
-    # now find the intersection between train an val
+    # now find the intersection between train and val
     indices_inter = []
     for ind, row in val.iterrows():
         ind_pair = (row["Carrier"], row["Service"], row["POD"], row["POL"])
@@ -112,6 +121,34 @@ def split_data(rel_df_nona, datetime_split, label="Avg_TTDays"):
     return train_df, val_res
 
 
+def load_excel_data(config: dict, data_name: str):
+    """Load excel data corresp. to data name
+
+    Args:
+        config (dict): config dict consisting of data and eval params
+        data_name (str): string representing data name (e.g. port call or retail sales)
+
+    Returns:
+        pd.DataFrame: dataframe corresponding to data_name
+    """
+
+    filename = config[data_name]["filename"]
+    sheetname = config[data_name]["sheet"]
+
+    data_dir = config["data_path"]
+
+    path = os.path.join(
+        data_dir,
+        filename
+    )
+    data = pd.read_excel(
+        path,
+        sheet_name=sheetname
+    )
+
+    return data
+
+
 def weighted_average_ser(ser):
 
     wts = pd.Series([1 / val if val != 0 else 0 for val in ser])
@@ -127,9 +164,9 @@ def get_carr_serv_mask(df, carrier, service):
         (df["Service"]==service)
 
 
-def get_reg_train_test(df, datetime_split, label='Avg_TTDays', use_retail=False):
+def get_reg_train_test(df, datetime_split, label='Avg_TTDays', use_retail=False, max_month=9, val_res=pd.DataFrame()):
 
-    df = add_delay_column(df)
+    # df = add_delay_column(df)
 
     date_column = "Date"
     # train
@@ -190,8 +227,17 @@ def get_reg_train_test(df, datetime_split, label='Avg_TTDays', use_retail=False)
         'POL'
     ])
 
-    # val
-    val = df[df[date_column] >= datetime_split]
+    # # val
+    # val = df[df[date_column] >= datetime_split]
+
+    # month thresh
+    month_thresh = datetime.datetime(2022, max_month, 1)
+    val = df[
+        (df[date_column] >= datetime_split) &
+        (df[date_column] <= month_thresh)
+    ]
+
+
 
     #
     val = train_wt_mean.merge(val, on=[
@@ -216,7 +262,6 @@ def get_reg_train_test(df, datetime_split, label='Avg_TTDays', use_retail=False)
     ])
 
     # predictors
-
     if not use_retail:
         predictors = [
             "POL",
@@ -230,7 +275,7 @@ def get_reg_train_test(df, datetime_split, label='Avg_TTDays', use_retail=False)
             f"{label}(std)_train",
             f"{label}_min_train",
             f"{label}_max_train",
-            "delay"
+            # "delay"
         ]
     else:
 
