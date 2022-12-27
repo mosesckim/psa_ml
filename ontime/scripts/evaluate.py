@@ -3,6 +3,8 @@
 # trade lane
 # and/or set of routes
 
+# also add delta on macroecon features
+
 import datetime
 import yaml
 import os
@@ -15,14 +17,14 @@ from sklearn.linear_model import LinearRegression
 
 from ontime.src.models import BaselineModel
 from ontime.src.utils import split_data, process_schedule_data, restrict_by_coverage, \
-    get_carr_serv_mask, get_reg_train_test, compute_train_val_mae
+    get_carr_serv_mask, get_reg_train_test, compute_train_val_mae, load_excel_data
+
 
 
 if __name__ == "__main__":
 
 
     # CONFIG
-
     with open("ontime/scripts/config.yml", "r") as f:
         config = yaml.safe_load(f)
 
@@ -34,10 +36,13 @@ if __name__ == "__main__":
     eval_params = config["eval"]
 
     split_month = eval_params["split_month"]
+    max_month = eval_params["max_month"]
     label = eval_params["label"]
     partial_pred = eval_params["partial_pred"]
     overall_pred = eval_params["overall_pred"]
 
+    restrict_trade = eval_params["restrict_trade"]
+    trade_option = eval_params["trade_option"]
     carrier_option = eval_params["carrier_option"]
     service_option = eval_params["service_option"]
 
@@ -47,127 +52,70 @@ if __name__ == "__main__":
     # DATA
 
     print("Loading data...")
+
     # shipping schedule data
     rel_path = os.path.join(
         data_dir,
         config["schedule"]["filename"]
     )
     schedule_data = pd.read_csv(rel_path)
-
     # port call data
-    port_filename = config["port_call"]["filename"]
-    port_sheetname = config["port_call"]["sheet"]
-    port_path = os.path.join(
-        data_dir,
-        port_filename
-    )
-    port_data = pd.read_excel(
-        port_path,
-        sheet_name=port_sheetname
-    )
-
+    port_data = load_excel_data(config, "port_call")
     # air freight data (shanghai - lax)
-    air_freight_filename = config["air_freight"]["filename"]
-    air_freight_sheetname = config["air_freight"]["sheet"]
-    air_freight_path = os.path.join(
-        data_dir,
-        air_freight_filename
-    )
-    air_freight_data = pd.read_excel(
-        air_freight_path,
-        sheet_name=air_freight_sheetname
-    )
-
+    air_freight_data = load_excel_data(config, "air_freight")
     # retail sales
-    sales_filename = config["sales"]["filename"]
-    sales_sheetname = config["sales"]["sheet"]
-    sales_path = os.path.join(
-        data_dir,
-        sales_filename
-    )
-    sales_data = pd.read_excel(
-        sales_path,
-        sheet_name=sales_sheetname
-    )
-
+    sales_data = load_excel_data(config, "sales")
     # cpi
-    cpi_filename = config["cpi"]["filename"]
-    cpi_sheetname = config["cpi"]["sheet"]
-    cpi_path = os.path.join(
-        data_dir,
-        cpi_filename
-    )
-    cpi_data = pd.read_excel(
-        cpi_path,
-        sheet_name=cpi_sheetname
-    )
+    cpi_data = load_excel_data(config, "cpi")
+
 
     # PREPROCESS DATA
 
-    # RELIABILITY SCHEDULE
+    # reliability schedule
+    # add date column, process strings, etc.
     rel_df_nona = process_schedule_data(schedule_data)
-    # rel_df_nona = restrict_by_coverage(rel_df_nona)  # need to?
-
-    datetime_split = datetime.datetime(2022, split_month, 1)
-    train_df, val_res = split_data(rel_df_nona, datetime_split, label=label)
-
-
-    val_X = val_res[["Carrier", "Service", "POD", "POL"]]
-    val_y = val_res[label]
-
-    train_df_filtered = train_df.copy()
-    val_X_filtered = val_X.copy()
-    val_y_filtered = val_y.copy()
-
+    # restrict by coverage
+    rel_df_nona = restrict_by_coverage(rel_df_nona)
+    # restrict trade
+    if restrict_trade:
+        rel_df_nona = rel_df_nona[rel_df_nona["Trade"]==trade_option]
 
     # port call
+    # seaport code dict (schedule -> port call)
     seaport_code_map= {"CNSHG": "CNSHA", "CNTNJ": "CNTXG", "CNQIN": "CNTAO"}
-
     # add seaport_code column to port data
     port_call_df = port_data
     port_call_df.loc[:, "seaport_code"] = port_call_df["UNLOCODE"].apply(
             lambda x: seaport_code_map[x] if x in seaport_code_map else x
     )
-
     # exclude rows with port code USORF from rel_df since it's missing
     rel_df_no_orf = rel_df_nona[~rel_df_nona.POD.isin(["USORF"])]
     # add seaport code column
     rel_df_no_orf.loc[:, "seaport_code"] = rel_df_no_orf["POD"]
-
     # compute average hours per call
     agg_cols = ["seaport_code", "Month", "Year"]
     target_cols = ["Total_Calls", "Port_Hours", "Anchorage_Hours"]
-
     # sum up calls, port/anchorage hours
     # and aggregate by port, month, and year
     port_hours_avg = port_call_df[target_cols + agg_cols].groupby(
         agg_cols
     ).sum().reset_index()
-
     # average port hours by port, month
     port_hours_avg.loc[:, "Avg_Port_Hours(by_call)"] = port_hours_avg[
         "Port_Hours"
     ] / port_hours_avg["Total_Calls"]
-
     # average anchorage hours by port, month
     port_hours_avg.loc[:, "Avg_Anchorage_Hours(by_call)"] = port_hours_avg[
         "Anchorage_Hours"
     ] / port_hours_avg["Total_Calls"]
-
-    port_hours_avg_2022 = port_hours_avg[port_hours_avg["Year"]==2022]
-
     # merge avg hours
     rel_df_no_orf_pt_hrs = rel_df_no_orf.merge(
-        port_hours_avg_2022,
+        port_hours_avg,
         left_on=["Calendary_Year", "Month(int)", "seaport_code"],
         right_on=["Year", "Month", "seaport_code"]
     )
 
-
-    # RETAIL SALES
-
-    # schedule + retail
-
+    # retail sales
     # reliability POL mapping -> retail_sales country/region
     rel_port_map = {
         'AEAUH': 'Agg Middle East & Africa',
@@ -214,34 +162,29 @@ if __name__ == "__main__":
         'USSAV': 'U.S.',
         'USTIW': 'U.S.'
     }
-
+    # create region column
     rel_df_nona.loc[:, "region"] = rel_df_nona["POL"].apply(
         lambda x: rel_port_map[x]
     )
-
-    sales_df = sales_data
-
     # process retail sales data
-    new_cols = [col.strip() for col in sales_df.columns]
-    sales_df.columns = new_cols
-
-    sales_df.loc[:, "month"] = sales_df["MonthYear"].apply(
+    new_cols = [col.strip() for col in sales_data.columns]
+    sales_data.columns = new_cols
+    # add month column
+    sales_data.loc[:, "month"] = sales_data["MonthYear"].apply(
         lambda x: int(x.split("/")[0])
     )
-
-    sales_df.loc[:, "year"] = sales_df["MonthYear"].apply(
+    # add year column
+    sales_data.loc[:, "year"] = sales_data["MonthYear"].apply(
         lambda x: int(x.split("/")[1])
     )
-
-    sales_df.loc[:, "date"] = sales_df["MonthYear"].apply(
+    # add date column
+    sales_data.loc[:, "date"] = sales_data["MonthYear"].apply(
         lambda x: datetime.datetime.strptime(
             x, "%m/%Y"
         )
     )
-
-    # create offset date column
-    sales_df.loc[:, "date(offset)"] = sales_df['date'] + pd.DateOffset(months=1)
-
+    # TODO: add support for moving average
+    sales_data.loc[:, "date(offset)"] = sales_data['date']
     # create a retail sales map given date and country/region
     # date, country/region -> retail sales index
     regions = [
@@ -258,28 +201,39 @@ if __name__ == "__main__":
         'Argentina', 'Brazil', 'Chile', 'Colombia', 'Agg Middle East & Africa',
         'Israel', 'South Africa'
     ]
-
-
     date_region_sales = {}
     for region in regions:
         region_dict = dict(
             zip(
-                sales_df["date(offset)"],
-                sales_df[region]
+                sales_data["date(offset)"],
+                sales_data[region]
             )
         )
-
         date_region_sales[region] = region_dict
 
-
     # calculate max date to avoid index error
-    max_date = sales_df["date(offset)"].max()
-
+    max_date = sales_data["date(offset)"].max()
     # finally, create new columns
     # iterate over rows
     rel_df_nona.loc[:, "retail_sales"] = rel_df_nona.apply(
         lambda x: date_region_sales[x["region"]][x["Date"]] if x["Date"] <= max_date else None, axis=1
     )
+
+
+    # PREPARE DATA
+    datetime_split = datetime.datetime(2022, split_month, 1)
+
+    # train_df rows have unique POD, POL, Carrier, Service columns values
+    # val_res rows don't  TODO: add this in func description
+    train_df, val_res = split_data(rel_df_nona, datetime_split, label=label, max_month=max_date.month)
+
+
+    val_X = val_res[["Carrier", "Service", "POD", "POL"]]
+    val_y = val_res[label]
+
+    train_df_filtered = train_df.copy()
+    val_X_filtered = val_X.copy()
+    val_y_filtered = val_y.copy()
 
 
     # EVALUATION
@@ -297,13 +251,61 @@ if __name__ == "__main__":
         raise Exception('Insufficient data, pease choose another split')
 
 
+    # linear regression
+    if include_reg and overall_pred:
 
-    if partial_pred or overall_pred:
+        # TODO: automate date upper threshold given my macroeconimc feature data set
+        val_res = val_res[val_res["Date"] < datetime.datetime(2022, 9, 1)]
+
+        split_month = min(8, split_month)
+        datetime_split = datetime.datetime(2022, split_month, 1)
+
+        # linear regression split (retail)
+        train_X_rg_ret, train_y_rg_ret, val_X_rg_ret, val_y_rg_ret = get_reg_train_test(
+            rel_df_nona, #rel_df_sales,
+            datetime_split,
+            label=label,
+            use_retail=True,
+            max_month=max_date.month,
+            val_res=val_res
+        )
+
+        # # TODO: include in pytest
+        # print("val sales shape: ", val_X_rg_ret.shape)
+        # print("val res shape: ", val_res.shape)
+
+        try:
+            # evaluate linear regression
+            linreg = LinearRegression()
+
+            val_mae_rg_ret, val_mape_rg_ret, val_mae_over_rg_ret, val_mape_over_rg_ret, result_df_rg_ret = compute_train_val_mae(
+                linreg,
+                train_X_rg_ret,
+                val_X_rg_ret,
+                train_y_rg_ret,
+                val_y_rg_ret,
+                calc_mape=True,
+                label=label
+            )
+
+            eval_lin_reg = True
+
+        except:
+            raise Exception("Not enough data. Choose a different split")
+
+
         # instantiate baseline model
         base_model = BaselineModel(train_df_filtered, label=label)
         preds = []
         preds_std = []
         print("Computing predictions...")  # TODO: progress bar
+
+        val_X_filtered = val_res[["Carrier", "Service", "POD", "POL"]]
+        val_y_filtered = val_res[label]
+
+        # TODO: write utils method for baseline model evaluation
+        # or better yet, integrate into baseilne model class
+
         for ind, row in val_X_filtered.iterrows():
             pred, pred_std = base_model.predict(*row)
 
@@ -361,54 +363,10 @@ if __name__ == "__main__":
             df_preds.loc[:, "perc_error"] = (preds - val_y_filtered) / val_y_filtered
 
 
-    # linear regression
-    # since we only have port call data up to august we restrict val_res
-    if include_reg and overall_pred:
-        val_res = val_res[val_res["Date"] < datetime.datetime(2022, 9, 1)]
 
-        split_month = min(8, split_month)
-        datetime_split = datetime.datetime(2022, split_month, 1)
+    if eval_lin_reg:
+        print("macro mape: ", val_mape_rg_ret)
+    else:
+        raise Exception("Not enough data. Choose a different split")
 
-        # linear regression split (port hours)
-        train_X_rg, train_y_rg, val_X_rg, val_y_rg = get_reg_train_test(
-            rel_df_no_orf_pt_hrs,
-            datetime_split,
-            label=label
-        )
-
-        # linear regression split (retail)
-        train_X_rg_ret, train_y_rg_ret, val_X_rg_ret, val_y_rg_ret = get_reg_train_test(
-            rel_df_nona, #rel_df_sales,
-            datetime_split,
-            label=label,
-            use_retail=True
-        )
-
-        try:
-            # evaluate linear regression
-            linreg = LinearRegression()
-            val_mae_rg, val_mape_rg, val_mae_over_rg, val_mape_over_rg, result_df_rg = compute_train_val_mae(
-                linreg,
-                train_X_rg,
-                val_X_rg,
-                train_y_rg,
-                val_y_rg,
-                calc_mape=True,
-                label=label
-            )
-
-            # linreg = LinearRegression()  # I am no too sure if we need to instantiate twice
-            val_mae_rg_ret, val_mape_rg_ret, val_mae_over_rg_ret, val_mape_over_rg_ret, result_df_rg_ret = compute_train_val_mae(
-                linreg,
-                train_X_rg_ret,
-                val_X_rg_ret,
-                train_y_rg_ret,
-                val_y_rg_ret,
-                calc_mape=True,
-                label=label
-            )
-
-            eval_lin_reg = True
-
-        except:
-            raise Exception("Not enough data. Choose a different split")
+    print("baseline mape: ", baseline_mape)
