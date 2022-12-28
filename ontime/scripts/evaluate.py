@@ -211,6 +211,7 @@ if __name__ == "__main__":
         )
         date_region_sales[region] = region_dict
 
+    # TODO: calculate max date given all datasets to be merged
     # calculate max date to avoid index error
     max_date = sales_data["date(offset)"].max()
     # finally, create new columns
@@ -262,12 +263,10 @@ if __name__ == "__main__":
 
         # linear regression split (retail)
         train_X_rg_ret, train_y_rg_ret, val_X_rg_ret, val_y_rg_ret = get_reg_train_test(
-            rel_df_nona, #rel_df_sales,
+            rel_df_nona,
             datetime_split,
             label=label,
-            use_retail=True,
-            max_month=max_date.month,
-            val_res=val_res
+            use_retail=True
         )
 
         # # TODO: include in pytest
