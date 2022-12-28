@@ -9,8 +9,17 @@ import xgboost as xgb
 
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 
-# process data
-def process_schedule_data(schedule_data):
+
+def process_schedule_data(schedule_data: pd.DataFrame):
+    """Process schedule reliability data
+
+    Args:
+        schedule_data (pd.DataFrame): raw data read from reliability schedule
+
+    Returns:
+        pd.DataFrame: processed dataframe excluding rows with null labels,
+        creating new columns 'Date' and 'Avg_TurnoverDays'
+    """
     # process schedule data
     # exclude rows with null reliability values
     rel_df_nona = schedule_data[~schedule_data["OnTime_Reliability"].isna()]
@@ -44,9 +53,16 @@ def process_schedule_data(schedule_data):
     return rel_df_nona
 
 
-# restrict to carrier service routes with all months covered
-def restrict_by_coverage(rel_df_nona, min_no_months=9):
+def restrict_by_coverage(rel_df_nona: pd.DataFrame, min_no_months=9):
+    """Restrict to carrier service routes with all months covered
 
+    Args:
+        rel_df_nona (pd.DataFrame): _description_
+        min_no_months (int, optional): _description_. Defaults to 9.
+
+    Returns:
+        _type_: _description_
+    """
     rel_df_nona_cvg = rel_df_nona.groupby(
         ["POL", "POD", "Carrier", "Service"]
     ).apply(lambda x: len(x["Month"].unique())
@@ -72,21 +88,38 @@ def restrict_by_coverage(rel_df_nona, min_no_months=9):
     return rel_df_nona.iloc[new_indices, :]
 
 
-def split_data(rel_df_nona, datetime_split, label="Avg_TTDays", max_month=9):
+def split_data(
+    rel_df_nona: pd.DataFrame,
+    datetime_split: datetime.datetime,
+    label="Avg_TTDays",
+    max_month=9
+):
+    """Return train, val split for baseline model
+
+    Args:
+        rel_df_nona (pd.DataFrame): _description_
+        datetime_split (datetime.datetime): _description_
+        label (str, optional): _description_. Defaults to "Avg_TTDays".
+        max_month (int, optional): _description_. Defaults to 9.
+
+    Returns:
+        tuple: (unique 'POD, POL, Carrier, Service' rows with weighted avg and std,
+               filtered validation data set with common 'POD, POL, Carrier, Service'
+               values in both train and val)
+    """
 
     month_thresh = datetime.datetime(2022, max_month, 1)
     # train
     train = rel_df_nona[rel_df_nona["Date"] < datetime_split]
 
-    # # val
-    # val = rel_df_nona[rel_df_nona["Date"] >= datetime_split]
-
+    # val
     val = rel_df_nona[
         (rel_df_nona["Date"] >= datetime_split) &
         (rel_df_nona["Date"] <= month_thresh)
     ]
 
 
+    # TODO: replace mean with count to get rid of label column
     # let's get multi-index pairs from train
     train_indices = list(
         train[
@@ -149,24 +182,55 @@ def load_excel_data(config: dict, data_name: str):
     return data
 
 
-def weighted_average_ser(ser):
+def weighted_average_ser(ser: pd.Series):
+    """Return weighted average of series
+
+    Args:
+        ser (pd.Series): pandas Series with float values
+
+    Returns:
+        float: weigthed average of series
+    """
 
     wts = pd.Series([1 / val if val != 0 else 0 for val in ser])
 
-    if wts.sum() == 0: return 0
+    if wts.sum() == 0: return 0  # avoid division by zero
 
     return (ser * wts).sum() / wts.sum()
 
 
-def get_carr_serv_mask(df, carrier, service):
+def get_carr_serv_mask(df: pd.DataFrame, carrier: str, service: str):
+    """Return pandas series mask given specific carrier and service
 
+    Args:
+        df (pd.DataFrame): Dataframe containing columns 'Carrier' and 'Service'
+        carrier (str): string corresp. to a specific carrier
+        service (str): string corresp. to a specific service
+
+    Returns:
+        pd.Series: series mask corresponding to carrier and service
+    """
     return (df["Carrier"]==carrier) & \
         (df["Service"]==service)
 
 
-def get_reg_train_test(df, datetime_split, label='Avg_TTDays', use_retail=False, max_month=9, val_res=pd.DataFrame()):
+def get_reg_train_test(
+    df: pd.DataFrame,
+    datetime_split: datetime.datetime,
+    label='Avg_TTDays',
+    use_retail=False
+):
+    """_summary_
 
-    # df = add_delay_column(df)
+    Args:
+        df (pd.DataFrame): _description_
+        datetime_split (datetime.datetime): _description_
+        label (str, optional): _description_. Defaults to 'Avg_TTDays'.
+        use_retail (bool, optional): _description_. Defaults to False.
+
+    Returns:
+        _type_: _description_
+    """
 
     date_column = "Date"
     # train
@@ -192,7 +256,6 @@ def get_reg_train_test(df, datetime_split, label='Avg_TTDays', use_retail=False,
         f'{label}_min_train',
         f'{label}(std)_min_train'
     ]
-
 
 
     train_max = get_train_wt_avg(train, datetime_split, label=label, agg_fun=np.max)
@@ -227,19 +290,9 @@ def get_reg_train_test(df, datetime_split, label='Avg_TTDays', use_retail=False,
         'POL'
     ])
 
-    # # val
-    # val = df[df[date_column] >= datetime_split]
+    # val
+    val = df[df[date_column] >= datetime_split]
 
-    # month thresh
-    month_thresh = datetime.datetime(2022, max_month, 1)
-    val = df[
-        (df[date_column] >= datetime_split) &
-        (df[date_column] <= month_thresh)
-    ]
-
-
-
-    #
     val = train_wt_mean.merge(val, on=[
         'Carrier',
         'Service',
@@ -274,8 +327,7 @@ def get_reg_train_test(df, datetime_split, label='Avg_TTDays', use_retail=False,
             f"{label}_train",
             f"{label}(std)_train",
             f"{label}_min_train",
-            f"{label}_max_train",
-            # "delay"
+            f"{label}_max_train"
         ]
     else:
 
@@ -306,7 +358,23 @@ def get_reg_train_test(df, datetime_split, label='Avg_TTDays', use_retail=False,
     return train_X, train_y, val_X, val_y
 
 
-def get_train_wt_avg(rel_df_nona, datetime_split, label="Avg_TTDays", agg_fun=weighted_average_ser):
+def get_train_wt_avg(
+    rel_df_nona: pd.DataFrame,
+    datetime_split: datetime.datetime,
+    label="Avg_TTDays",
+    agg_fun=weighted_average_ser
+):
+    """_summary_
+
+    Args:
+        rel_df_nona (pd.DataFrame): _description_
+        datetime_split (datetime.datetime): _description_
+        label (str, optional): _description_. Defaults to "Avg_TTDays".
+        agg_fun (_type_, optional): _description_. Defaults to weighted_average_ser.
+
+    Returns:
+        _type_: _description_
+    """
 
     train = rel_df_nona[rel_df_nona["Date"] < datetime_split]
 
@@ -325,30 +393,26 @@ def get_train_wt_avg(rel_df_nona, datetime_split, label="Avg_TTDays", agg_fun=we
     return train_df
 
 
-def add_delay_column(df):
-
-    df.loc[:, "delay"] = (df["OnTime_Reliability"]==0).apply(
-        lambda x: "delay" if x else "non-delay"
-    )
-
-    df = gen_lag(
-        df,
-        target_cols=["delay"]
-    )
-
-    return df
-
-
 def gen_lag(
-    df,
+    df: pd.DataFrame,
     lag=1,
     lag_col="Month(int)",
     target_cols=["OnTime_Reliability"],
     common_cols=["Carrier", "Service", "POL", "POD", "Trade", "Month(int)"]
 ):
-
     """Generate month lag on a target column by some number of months.
+
+    Args:
+        df (pd.DataFrame): _description_
+        lag (int, optional): _description_. Defaults to 1.
+        lag_col (str, optional): _description_. Defaults to "Month(int)".
+        target_cols (list, optional): _description_. Defaults to ["OnTime_Reliability"].
+        common_cols (list, optional): _description_. Defaults to ["Carrier", "Service", "POL", "POD", "Trade", "Month(int)"].
+
+    Returns:
+        _type_: _description_
     """
+
 
     # make a copy of dataframe
     # to apply lag
@@ -388,17 +452,33 @@ def gen_lag(
 
 def compute_train_val_mae(
     model,
-    train_X,
-    val_X,
-    train_y,
-    val_y,
+    train_X: pd.DataFrame,
+    val_X: pd.DataFrame,
+    train_y: pd.Series,
+    val_y: pd.Series,
     is_xgboost=False,
     calc_mape=False,
     label="Avg_TTDays"
-):
+):  # TODO: refactor method name
+    """Return train/validation MAE and MAPE metrics given scikit learn model
+
+    Args:
+        model (sklearn.base.BaseEstimator): _description_
+        train_X (pd.DataFrame): _description_
+        val_X (pd.DataFrame): _description_
+        train_y (pd.Series): _description_
+        val_y (pd.Series): _description_
+        is_xgboost (bool, optional): _description_. Defaults to False.
+        calc_mape (bool, optional): _description_. Defaults to False.
+        label (str, optional): _description_. Defaults to "Avg_TTDays".
+
+    Returns:
+        _type_: _description_
+    """
 
     train_X_rg, val_X_rg = compute_common_cols(train_X, val_X)
 
+    # TODO: decide to keep or discard xgb model here
     if is_xgboost:
         data_dmatrix = xgb.DMatrix(data=train_X_rg, label=train_y)
         model = xgb.XGBRegressor(
@@ -490,8 +570,17 @@ def compute_train_val_mae(
 
 
 # we need to restrict to common inputs
-def compute_common_cols(train_X, val_X):
-    "Return train and val restricted to common cols"
+def compute_common_cols(train_X: pd.DataFrame, val_X: pd.Series):
+    """Return train and val restricted to common cols
+
+    Args:
+        train_X (pd.DataFrame): _description_
+        val_X (pd.Series): _description_
+
+    Returns:
+        _type_: _description_
+    """
+
     # get dummies for categorical variables
     train_X_rg = pd.get_dummies(train_X)
     val_X_rg = pd.get_dummies(val_X)
