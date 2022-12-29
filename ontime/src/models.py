@@ -1,9 +1,6 @@
-# scripts containing
+import pandas as pd
 
-# moving average (baseline model)
-# linear regressor
-
-# xgboost models for transit time prediction
+from ontime.src.utils import weighted_average_ser
 
 
 class BaselineModel:
@@ -29,17 +26,35 @@ class BaselineModel:
 
     """
 
-    def __init__(self, train_df, label="OnTime_Reliability"):
-        """_summary_
+    def __init__(self):
+        """Baseline model class constructor
+        """
+        self.train_df = None
+        self.label = None
+
+    def fit(self, train: pd.DataFrame, label="OnTime_Reliability"):
+        """Fit baseline model to train data
 
         Args:
-            train_df (DataFrame): _description_
-            label (str, optional): _description_. Defaults to "OnTime_Reliability".
+            train (pd.DataFrame): train dataframe containing columns "Carrier", "Service", "POD", and "POL".
+            label (str, optional): Target label. Defaults to "OnTime_Reliability".
         """
-        self.train_df = train_df
-        self.label = label
+        # TODO: perform column existence check
+        train_on_time_rel_by_carr_ser = train[[
+            "Carrier", "Service", "POD", "POL", label
+        ]].groupby(["Carrier", "Service", "POD", "POL"]).apply(
+            lambda x: (weighted_average_ser(x[label].values), x[label].values.std())
+        ).reset_index()
 
-    def predict(self, carrier: str, service: str, pod: str, pol: str):
+        train_on_time_rel_by_carr_ser.loc[:, f"{label}"] = train_on_time_rel_by_carr_ser[0].apply(lambda x: x[0])
+        train_on_time_rel_by_carr_ser.loc[:, f"{label}(std)"] = train_on_time_rel_by_carr_ser[0].apply(lambda x: x[1])
+
+        train_on_time_rel_by_carr_ser.drop(0, axis=1, inplace=True)
+
+        self.label = label
+        self.train_df = train_on_time_rel_by_carr_ser
+
+    def predict_(self, carrier: str, service: str, pod: str, pol: str):
         """Return weighted label value and standard deviation
 
         Args:
@@ -64,3 +79,24 @@ class BaselineModel:
         label_pred_std = pred[f"{self.label}(std)"]
 
         return label_pred.iloc[0], label_pred_std.iloc[0]
+
+    def predict(self, test_data):
+        """Return weighted label value and standard deviation
+
+        Args:
+            test_data (pd.DataFrame): test dataframe containing cols "Carrier", "Service", "POD", "POL"
+
+        Returns:
+            tuple: weighted label value, standard deviation
+        """
+
+        # merge train data
+        preds = test_data.merge(
+            self.train_df,
+            on=["Carrier", "Service", "POD", "POL"]
+        )
+
+        label_preds = preds[self.label]
+        label_preds_std = preds[f"{self.label}(std)"]
+
+        return label_preds, label_preds_std

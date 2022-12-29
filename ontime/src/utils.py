@@ -54,21 +54,21 @@ def process_schedule_data(schedule_data: pd.DataFrame):
 
 
 def restrict_by_coverage(rel_df_nona: pd.DataFrame, min_no_months=9):
-    """Restrict to carrier service routes with all months covered
+    """Restrict to carrier service routes with given no. of months covered
 
     Args:
-        rel_df_nona (pd.DataFrame): _description_
-        min_no_months (int, optional): _description_. Defaults to 9.
+        rel_df_nona (pd.DataFrame): shipping schedule dataframe
+        min_no_months (int, optional): months threshold. Defaults to 9.
 
     Returns:
-        _type_: _description_
+        pd.DataFrame: dataframe with routes having at least nine months' worth of data
     """
     rel_df_nona_cvg = rel_df_nona.groupby(
         ["POL", "POD", "Carrier", "Service"]
     ).apply(lambda x: len(x["Month"].unique())
     )
 
-    rel_df_nona_full_cvg = rel_df_nona_cvg[rel_df_nona_cvg==min_no_months]  # TODO: REMOVE hardcoded value
+    rel_df_nona_full_cvg = rel_df_nona_cvg[rel_df_nona_cvg==min_no_months]
 
     rel_df_nona_full_cvg_indices = rel_df_nona_full_cvg.index
 
@@ -91,21 +91,19 @@ def restrict_by_coverage(rel_df_nona: pd.DataFrame, min_no_months=9):
 def split_data(
     rel_df_nona: pd.DataFrame,
     datetime_split: datetime.datetime,
-    label="Avg_TTDays",
     max_month=9
 ):
     """Return train, val split for baseline model
 
     Args:
-        rel_df_nona (pd.DataFrame): _description_
-        datetime_split (datetime.datetime): _description_
-        label (str, optional): _description_. Defaults to "Avg_TTDays".
-        max_month (int, optional): _description_. Defaults to 9.
+        rel_df_nona (pd.DataFrame): shipping schedule data
+        datetime_split (datetime.datetime): time horizon
+        max_month (int, optional): no. of months to cover. Defaults to 9.
 
     Returns:
         tuple: (unique 'POD, POL, Carrier, Service' rows with weighted avg and std,
                filtered validation data set with common 'POD, POL, Carrier, Service'
-               values in both train and val)
+               values from both train and val)
     """
 
     month_thresh = datetime.datetime(2022, max_month, 1)
@@ -119,12 +117,11 @@ def split_data(
     ]
 
 
-    # TODO: replace mean with count to get rid of label column
     # let's get multi-index pairs from train
     train_indices = list(
         train[
-            ["Carrier", "Service", "POD", "POL", label]
-        ].groupby(["Carrier", "Service", "POD", "POL"]).mean().index
+            ["Carrier", "Service", "POD", "POL"]
+        ].groupby(["Carrier", "Service", "POD", "POL"]).count().index
     )
 
     # now find the intersection between train and val
@@ -137,21 +134,7 @@ def split_data(
     # now restrict to the indices in the intersection
     val_res = val.loc[indices_inter, :]
 
-    # use weighted average
-    train_on_time_rel_by_carr_ser = train[[
-        "Carrier", "Service", "POD", "POL", label
-    ]].groupby(["Carrier", "Service", "POD", "POL"]).apply(
-        lambda x: (weighted_average_ser(x[label].values), x[label].values.std())
-    ).reset_index()
-
-    train_on_time_rel_by_carr_ser.loc[:, f"{label}"] = train_on_time_rel_by_carr_ser[0].apply(lambda x: x[0])
-    train_on_time_rel_by_carr_ser.loc[:, f"{label}(std)"] = train_on_time_rel_by_carr_ser[0].apply(lambda x: x[1])
-
-    train_on_time_rel_by_carr_ser.drop(0, axis=1, inplace=True)
-
-    train_df = train_on_time_rel_by_carr_ser.copy()
-
-    return train_df, val_res
+    return train, val_res
 
 
 def load_excel_data(config: dict, data_name: str):
@@ -189,7 +172,7 @@ def weighted_average_ser(ser: pd.Series):
         ser (pd.Series): pandas Series with float values
 
     Returns:
-        float: weigthed average of series
+        float: weighted average of series
     """
 
     wts = pd.Series([1 / val if val != 0 else 0 for val in ser])
@@ -220,16 +203,16 @@ def get_reg_train_test(
     label='Avg_TTDays',
     use_retail=False
 ):
-    """_summary_
+    """Return train val data with train weighted mean features
 
     Args:
-        df (pd.DataFrame): _description_
-        datetime_split (datetime.datetime): _description_
-        label (str, optional): _description_. Defaults to 'Avg_TTDays'.
-        use_retail (bool, optional): _description_. Defaults to False.
+        df (pd.DataFrame): shipping + features train data
+        datetime_split (datetime.datetime): time horizon to split from
+        label (str, optional): column label. Defaults to 'Avg_TTDays'.
+        use_retail (bool, optional): whether retail features are included. Defaults to False.
 
     Returns:
-        _type_: _description_
+        tuple: train, val split
     """
 
     date_column = "Date"
@@ -367,13 +350,14 @@ def get_train_wt_avg(
     """_summary_
 
     Args:
-        rel_df_nona (pd.DataFrame): _description_
-        datetime_split (datetime.datetime): _description_
-        label (str, optional): _description_. Defaults to "Avg_TTDays".
-        agg_fun (_type_, optional): _description_. Defaults to weighted_average_ser.
+        rel_df_nona (pd.DataFrame): shipping schedule data + features
+        datetime_split (datetime.datetime): time horizon
+        label (str, optional): target label. Defaults to "Avg_TTDays".
+        agg_fun (Callable, optional): aggregate function to weigh values by. Defaults to weighted_average_ser.
 
     Returns:
-        _type_: _description_
+        pd.DataFrame: dataframe with unique "Carrier", "Service", "POL", "POD" rows
+                    and label weighted by aggregate function
     """
 
     train = rel_df_nona[rel_df_nona["Date"] < datetime_split]
@@ -403,16 +387,16 @@ def gen_lag(
     """Generate month lag on a target column by some number of months.
 
     Args:
-        df (pd.DataFrame): _description_
-        lag (int, optional): _description_. Defaults to 1.
-        lag_col (str, optional): _description_. Defaults to "Month(int)".
-        target_cols (list, optional): _description_. Defaults to ["OnTime_Reliability"].
-        common_cols (list, optional): _description_. Defaults to ["Carrier", "Service", "POL", "POD", "Trade", "Month(int)"].
+        df (pd.DataFrame): train data
+        lag (int, optional): no. of months to lag by. Defaults to 1.
+        lag_col (str, optional): lag column name. Defaults to "Month(int)".
+        target_cols (list, optional): target column list. Defaults to ["OnTime_Reliability"].
+        common_cols (list, optional): columns to merge on.
+            Defaults to ["Carrier", "Service", "POL", "POD", "Trade", "Month(int)"].
 
     Returns:
-        _type_: _description_
+        pd.DataFrame: dataframe with new lag column appended
     """
-
 
     # make a copy of dataframe
     # to apply lag
@@ -428,13 +412,8 @@ def gen_lag(
         df_lag.loc[:, new_col_name] = df_lag[target_col]
         df_lag.drop(target_col, inplace=True, axis=1)
 
-    # get common cols to merge on
-    # common_cols = ["POL", "POD", "Carrier", "Service"]
-
     # now merge lagged feature onto original df
-
     df_with_lag_feature = df.merge(df_lag, on=common_cols)
-
     df_with_lag_feature.rename(
 
         columns={
@@ -450,123 +429,137 @@ def gen_lag(
     return df_with_lag_feature
 
 
-def compute_train_val_mae(
+def filter_nonzero_values(data_X, data_y, preds, label):
+    """Filter feature and target data with nonzero labels
+
+    Args:
+        data_X (pd.DataFrame): feature data
+        data_y (pd.Series): label data
+        preds (list): model predictions
+        label (str): target label
+
+    Returns:
+        tuple: filtered feature, labels, and predictions
+    """
+    preds_array = np.array(preds)
+
+    # create mask to use for filtering
+    nonzero_mask = data_y != 0
+    nonzero_mask = nonzero_mask.reset_index()[label]
+
+    # filtering zero values
+    if sum(nonzero_mask) != 0:
+
+        preds = pd.Series(preds)[nonzero_mask]
+
+        data_y = data_y.reset_index()[label]
+        data_y = data_y[nonzero_mask]
+
+        data_X = data_X.reset_index().drop("index", axis=1)
+        data_X = data_X[nonzero_mask]
+
+        preds_array = np.array(preds)
+
+        data_gt = data_y.values
+
+        return data_X, data_gt, preds_array
+
+    else:
+        raise Exception("All target values are zero!")
+
+
+def compute_eval_metrics(
     model,
     train_X: pd.DataFrame,
     val_X: pd.DataFrame,
     train_y: pd.Series,
     val_y: pd.Series,
-    is_xgboost=False,
-    calc_mape=False,
+    include_overestimates=False,
     label="Avg_TTDays"
-):  # TODO: refactor method name
+):
     """Return train/validation MAE and MAPE metrics given scikit learn model
 
     Args:
-        model (sklearn.base.BaseEstimator): _description_
-        train_X (pd.DataFrame): _description_
-        val_X (pd.DataFrame): _description_
-        train_y (pd.Series): _description_
-        val_y (pd.Series): _description_
-        is_xgboost (bool, optional): _description_. Defaults to False.
-        calc_mape (bool, optional): _description_. Defaults to False.
-        label (str, optional): _description_. Defaults to "Avg_TTDays".
+        model (sklearn.base.BaseEstimator): scikit estimator object
+        train_X (pd.DataFrame): feature data
+        val_X (pd.DataFrame): val data
+        train_y (pd.Series): train ground truth
+        val_y (pd.Series): val ground truth
+        include_overestimates (bool, optional): whether to calculate MAPE. Defaults to False.
+        label (str, optional): target label. Defaults to "Avg_TTDays".
 
     Returns:
-        _type_: _description_
+        tuple: MAE and MAPE values for validation
     """
 
     train_X_rg, val_X_rg = compute_common_cols(train_X, val_X)
 
-    # TODO: decide to keep or discard xgb model here
-    if is_xgboost:
-        data_dmatrix = xgb.DMatrix(data=train_X_rg, label=train_y)
-        model = xgb.XGBRegressor(
-            objective='reg:linear',
-            colsample_bytree=0.3,
-            learning_rate=0.1,
-            max_depth=5,
-            alpha=10,
-            n_estimators=10
-        )
-
     # fit model
     model.fit(train_X_rg, train_y)
 
+    train_preds = model.predict(train_X_rg)
+    val_preds = model.predict(val_X_rg)
+
     # need to make sure reliability predictions are capped at 100 and 0
-    train_preds = list(map(lambda x: 100 if x >= 100 else x, model.predict(train_X_rg)))
-    val_preds = list(map(lambda x: 100 if x >= 100 else x, model.predict(val_X_rg)))
+    if label == "Avg_TTDays":
+        train_preds = list(map(lambda x: 100 if x >= 100 else x, model.predict(train_X_rg)))
+        val_preds = list(map(lambda x: 100 if x >= 100 else x, model.predict(val_X_rg)))
 
-    train_preds = list(map(lambda x: 0 if x<=0 else x, train_preds))
-    val_preds = list(map(lambda x: 0 if x<=0 else x, val_preds))
+        train_preds = list(map(lambda x: 0 if x<=0 else x, train_preds))
+        val_preds = list(map(lambda x: 0 if x<=0 else x, val_preds))
 
+    # val metrics
+    val_X, val_gt, preds_array = filter_nonzero_values(val_X, val_y, val_preds, label)
+    val_mae = mean_absolute_error(val_gt, preds_array)
+    val_mape = mean_absolute_percentage_error(val_gt, preds_array)
 
-    preds_array = np.array(val_preds)
+    # train metrics
+    train_X, train_gt, train_preds_array = filter_nonzero_values(train_X, train_y, train_preds, label)
+    train_mae = mean_absolute_error(train_gt, train_preds_array)
+    train_mape = mean_absolute_percentage_error(train_gt, train_preds_array)
 
-    nonzero_mask = val_y != 0
-    nonzero_mask = nonzero_mask.reset_index()[label]
+    # create error result dataframe
+    result_df = val_X.copy()
+    result_df.loc[:, "actual"] = val_y
+    result_df.loc[:, "pred"] = preds_array
+    result_df.loc[:, "error"] = preds_array - val_y
+    result_df.loc[:, "perc_error"] = (preds_array - val_y) / val_y
 
+    result_df = result_df[
+        [
+            "Carrier",
+            "Service",
+            "POD",
+            "POL",
+            "actual",
+            "pred",
+            "error",
+            "perc_error"
+        ]
+    ]
 
-    # filtering zero wait time
-    if sum(nonzero_mask) != 0:
-
-        preds = pd.Series(val_preds)[nonzero_mask]
-
-        val_y = val_y.reset_index()[label]
-        val_y = val_y[nonzero_mask]
-
-        val_X = val_X.reset_index().drop("index", axis=1)
-        val_X = val_X[nonzero_mask]
-
-        preds_array = np.array(preds)
-
-        val_gt = val_y.values
-
-        val_mae = mean_absolute_error(val_gt, preds_array)
-        val_mape = mean_absolute_percentage_error(val_gt, preds_array)
-
-    # evaluate
-    # train MAE
-    train_mae = mean_absolute_error(train_y, train_preds)
-    # val MAE
+    # overestimate mask
     diff = preds_array - val_y
     mask = diff > 0
-    val_mae_over = diff[mask].mean()
-
 
     # mape
-    if calc_mape:
-        # val_mape = mean_absolute_percentage_error(val_y, val_preds)
+    if include_overestimates:
+
+        if sum(mask) == 0: raise Exception("There are not overestimated preds!")
+
+        # compute mae (over)
+        val_mae_over = diff[mask].mean()
+        # series mask
         mask_ser = mask.reset_index()[label]
+        # compute mape (over)
         val_preds_over = pd.Series(preds_array)[mask_ser]
-        # val_preds_over = pd.Series(val_preds)[mask_ser]
         val_y_over = pd.Series(list(val_y))[mask_ser]
-        # val_y_over = pd.Series(list(val_y))[mask_ser]
         val_mape_over = mean_absolute_percentage_error(val_y_over, val_preds_over)
 
 
-        result_df = val_X.copy()
-        result_df.loc[:, "actual"] = val_y
-        result_df.loc[:, "pred"] = preds_array
-        result_df.loc[:, "error"] = preds_array - val_y
-        result_df.loc[:, "perc_error"] = (preds - val_y) / val_y
+        return train_mae, train_mape, val_mae, val_mape, val_mae_over, val_mape_over, result_df
 
-        result_df = result_df[
-            [
-                "Carrier",
-                "Service",
-                "POD",
-                "POL",
-                "actual",
-                "pred",
-                "error",
-                "perc_error"
-            ]
-        ]
-
-        return val_mae, val_mape, val_mae_over, val_mape_over, result_df
-
-    return val_mae, val_mape
+    return train_mae, train_mape, val_mae, val_mape, result_df
 
 
 # we need to restrict to common inputs
@@ -574,11 +567,11 @@ def compute_common_cols(train_X: pd.DataFrame, val_X: pd.Series):
     """Return train and val restricted to common cols
 
     Args:
-        train_X (pd.DataFrame): _description_
-        val_X (pd.Series): _description_
+        train_X (pd.DataFrame): feature data
+        val_X (pd.Series): test data
 
     Returns:
-        _type_: _description_
+        tuple: feature and test data restricted to common columns (for regression fitting)
     """
 
     # get dummies for categorical variables
