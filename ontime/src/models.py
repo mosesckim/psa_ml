@@ -20,8 +20,8 @@ class BaselineModel:
 
     Methods
     -------
-    predict(carrier, service, pod, pol)
-        Returns the label weighted value  and standard deviation
+    predict(test_data)
+        Returns the label weighted value and standard deviation
         corresp. to given carrier, service, pod, and pol.
 
     """
