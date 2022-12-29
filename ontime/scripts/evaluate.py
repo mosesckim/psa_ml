@@ -17,7 +17,7 @@ from sklearn.linear_model import LinearRegression
 
 from ontime.src.models import BaselineModel
 from ontime.src.utils import split_data, process_schedule_data, restrict_by_coverage, \
-    get_carr_serv_mask, get_reg_train_test, compute_train_val_mae, load_excel_data
+    get_carr_serv_mask, get_reg_train_test, compute_eval_metrics, load_excel_data
 
 
 
@@ -226,7 +226,7 @@ if __name__ == "__main__":
 
     # train_df rows have unique POD, POL, Carrier, Service columns values
     # val_res rows don't  TODO: add this in func description
-    train_df, val_res = split_data(rel_df_nona, datetime_split, label=label, max_month=max_date.month)
+    train_df, val_res = split_data(rel_df_nona, datetime_split, max_month=max_date.month)
 
 
     val_X = val_res[["Carrier", "Service", "POD", "POL"]]
@@ -277,13 +277,15 @@ if __name__ == "__main__":
             # evaluate linear regression
             linreg = LinearRegression()
 
-            val_mae_rg_ret, val_mape_rg_ret, val_mae_over_rg_ret, val_mape_over_rg_ret, result_df_rg_ret = compute_train_val_mae(
+            train_mae_rg_ret, train_mape_rg_ret, \
+                val_mae_rg_ret, val_mape_rg_ret, val_mae_over_rg_ret, val_mape_over_rg_ret, \
+                    result_df_rg_ret = compute_eval_metrics(
                 linreg,
                 train_X_rg_ret,
                 val_X_rg_ret,
                 train_y_rg_ret,
                 val_y_rg_ret,
-                calc_mape=True,
+                include_overestimates=True,
                 label=label
             )
 
@@ -294,26 +296,29 @@ if __name__ == "__main__":
 
 
         # instantiate baseline model
-        base_model = BaselineModel(train_df_filtered, label=label)
-        preds = []
-        preds_std = []
-        print("Computing predictions...")  # TODO: progress bar
+        base_model = BaselineModel()
+        base_model.fit(train_df_filtered, label)
 
-        val_X_filtered = val_res[["Carrier", "Service", "POD", "POL"]]
-        val_y_filtered = val_res[label]
-
-        # TODO: write utils method for baseline model evaluation
-        # or better yet, integrate into baseilne model class
-
-        for ind, row in val_X_filtered.iterrows():
-            pred, pred_std = base_model.predict(*row)
-
-            preds.append(pred)
-            preds_std.append(pred_std)
+        preds, preds_std = base_model.predict(val_X_filtered)
+        preds_array, preds_std_array = list(map(lambda x: x.values, [preds, preds_std]))
 
 
-        preds_array = np.array(preds)
-        preds_std_array = np.array(preds_std)
+        # # prediction by row
+        # preds = []
+        # preds_std = []
+        # print("Computing predictions...")  # TODO: progress bar
+
+        # val_X_filtered = val_res[["Carrier", "Service", "POD", "POL"]]
+        # val_y_filtered = val_res[label]
+
+        # for ind, row in val_X_filtered.iterrows():
+        #     pred, pred_std = base_model.predict_(*row)
+
+        #     preds.append(pred)
+        #     preds_std.append(pred_std)
+        # preds_array = np.array(preds)
+        # preds_std_array = np.array(preds_std)
+
 
         nonzero_mask = val_y_filtered != 0  # for mape computation
         nonzero_mask = nonzero_mask.reset_index()[label]
@@ -360,8 +365,6 @@ if __name__ == "__main__":
             df_preds.loc[:, "pred"] = preds_array
             df_preds.loc[:, "error"] = preds_array - val_y_filtered
             df_preds.loc[:, "perc_error"] = (preds - val_y_filtered) / val_y_filtered
-
-
 
     if eval_lin_reg:
         print("macro mape: ", val_mape_rg_ret)
