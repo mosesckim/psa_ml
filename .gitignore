@@ -1,3 +1,10 @@
 ontime/data/
 
+bl_rec/data/
+
+psa_ml.egg-info/
+build/
+
+output/
+
 __pycache__
