@@ -9,6 +9,8 @@ import xgboost as xgb
 
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 
+pd.set_option('mode.chained_assignment', None)
+
 
 def process_schedule_data(schedule_data: pd.DataFrame):
     """Process schedule reliability data
@@ -135,6 +137,258 @@ def split_data(
     val_res = val.loc[indices_inter, :]
 
     return train, val_res
+
+
+def align_port_call(
+    port_data,
+    rel_df_nona,
+    agg_cols=["seaport_code", "Month", "Year"],
+    target_cols=["Total_Calls", "Port_Hours", "Anchorage_Hours"],
+):
+    """Compute aggregate by port, month, year, and merge with schedule data
+
+    Args:
+        port_data (pd.DataFrame): port call data frame
+        rel_df_nona (pd.DataFrame): reliability schedule data frame
+        agg_cols (list, optional): aggregate column group. Defaults to ["seaport_code", "Month", "Year"].
+        target_cols (list, optional): target colums. Defaults to ["Total_Calls", "Port_Hours", "Anchorage_Hours"].
+
+    Returns:
+        pd.DataFrame: port call aggregate data merged with schedule
+    """
+
+    # seaport code dict (schedule -> port call)
+    seaport_code_map = {"CNSHG": "CNSHA", "CNTNJ": "CNTXG", "CNQIN": "CNTAO"}
+    # add seaport_code column to port data
+    port_call_df = port_data
+    port_call_df.loc[:, "seaport_code"] = port_call_df["UNLOCODE"].apply(
+            lambda x: seaport_code_map[x] if x in seaport_code_map else x
+    )
+    # exclude rows with port code USORF from rel_df since it's missing
+    rel_df_no_orf = rel_df_nona[~rel_df_nona.POD.isin(["USORF"])]
+    # add seaport code column
+    rel_df_no_orf.loc[:, "seaport_code"] = rel_df_no_orf["POD"]
+    # compute average hours per call
+    # sum up calls, port/anchorage hours
+    # and aggregate by port, month, and year
+    port_hours_avg = port_call_df[target_cols + agg_cols].groupby(
+        agg_cols
+    ).sum().reset_index()
+    # average port hours by port, month
+    port_hours_avg.loc[:, "Avg_Port_Hours(by_call)"] = port_hours_avg[
+        "Port_Hours"
+    ] / port_hours_avg["Total_Calls"]
+    # average anchorage hours by port, month
+    port_hours_avg.loc[:, "Avg_Anchorage_Hours(by_call)"] = port_hours_avg[
+        "Anchorage_Hours"
+    ] / port_hours_avg["Total_Calls"]
+    # merge avg hours
+    rel_df_no_orf_pt_hrs = rel_df_no_orf.merge(
+        port_hours_avg,
+        left_on=["Calendary_Year", "Month(int)", "seaport_code"],
+        right_on=["Year", "Month", "seaport_code"]
+    )
+
+    return rel_df_no_orf_pt_hrs
+
+
+def process_sales(sales_data, rel_df_nona):
+    """Add features to sales data
+
+    Args:
+        sales_data (pd.DataFrame): retail sales data frame
+        rel_df_nona (pd.DataFrame): reliability schedule data frame
+    """
+
+    # reliability POL mapping -> retail_sales country/region
+    rel_port_map = {
+        'AEAUH': 'Agg Middle East & Africa',
+        'AEJEA': 'Agg Middle East & Africa',
+        'BEANR': 'Belgium',
+        'BRRIG': 'Brazil',
+        'CNNGB': 'China',
+        'CNSHA': 'China',
+        'CNSHK': 'China',
+        'CNTAO': 'China',
+        'CNYTN': 'China',
+        'COCTG': 'Colombia',
+        'DEHAM': 'Denmark',
+        'ESBCN': 'Spain',
+        'ESVLC': 'Spain',
+        'GBLGP': 'U.K.',
+        'GRPIR': 'Greece',
+        'HKHKG': 'Hong Kong',
+        'JPUKB': 'Japan',
+        'KRPUS': 'South Korea',
+        'LKCMB': 'Agg Asia Pacific',
+        'MAPTM': 'Agg Middle East & Africa',
+        'MXZLO': 'Mexico',
+        'MYPKG': 'Agg Asia Pacific',
+        'MYTPP': 'Agg Asia Pacific',
+        'NLRTM': 'Netherlands',
+        'NZAKL': 'Agg Asia Pacific',
+        'PAMIT': 'Agg Latin America',
+        'SAJED': 'Agg Middle East & Africa',
+        'SAJUB': 'Agg Middle East & Africa',
+        'SGSIN': 'Singapore',
+        'THLCH': 'Thailand',
+        'TWKHH': 'Taiwan',
+        'USBAL': 'U.S.',
+        'USCHS': 'U.S.',
+        'USHOU': 'U.S.',
+        'USILM': 'U.S.',
+        'USLAX': 'U.S.',
+        'USLGB': 'U.S.',
+        'USMOB': 'U.S.',
+        'USMSY': 'U.S.',
+        'USNYC': 'U.S.',
+        'USORF': 'U.S.',
+        'USSAV': 'U.S.',
+        'USTIW': 'U.S.'
+    }
+    # create region column
+    rel_df_nona.loc[:, "region"] = rel_df_nona["POL"].apply(
+        lambda x: rel_port_map[x]
+    )
+    # process retail sales data
+    new_cols = [col.strip() for col in sales_data.columns]
+    sales_data.columns = new_cols
+    # add month column
+    sales_data.loc[:, "month"] = sales_data["MonthYear"].apply(
+        lambda x: int(x.split("/")[0])
+    )
+    # add year column
+    sales_data.loc[:, "year"] = sales_data["MonthYear"].apply(
+        lambda x: int(x.split("/")[1])
+    )
+    # add date column
+    sales_data.loc[:, "date"] = sales_data["MonthYear"].apply(
+        lambda x: datetime.datetime.strptime(
+            x, "%m/%Y"
+        )
+    )
+    # TODO: add support for moving average
+    sales_data.loc[:, "date(offset)"] = sales_data['date']
+
+
+def align_sales(sales_data, rel_df_nona, max_date):
+    """Add retail sales column to schedule data
+
+    Args:
+        sales_data (pd.DataFrame): retail sales data frame
+        rel_df_nona (pd.DataFrame): reliability schedule data frame
+        max_date (datetime.datetime): max data threshold
+    """
+
+    # create a retail sales map given date and country/region
+    # date, country/region -> retail sales index
+    regions = [
+        'Agg North America', 'U.S.', 'Canada', 'Mexico',
+        'Agg Western Europe', 'Austria', 'Belgium', 'Cyprus', 'Denmark',
+        'Euro Area', 'Finland', 'France', 'Germany', 'Greece', 'Iceland',
+        'Ireland', 'Italy', 'Luxembourg', 'Netherlands', 'Norway', 'Portugal',
+        'Spain', 'Sweden', 'Switzerland', 'U.K.', 'Agg Asia Pacific',
+        'Australia', 'China', 'Hong Kong', 'Indonesia', 'Japan', 'Kazakhstan',
+        'Macau', 'Singapore', 'South Korea', 'Taiwan', 'Thailand', 'Vietnam',
+        'Agg Eastern Europe', 'Bulgaria', 'Croatia', 'Czech Republic',
+        'Estonia', 'Hungary', 'Latvia', 'Lithuania', 'Poland', 'Romania',
+        'Russia', 'Serbia', 'Slovenia', 'Turkey', 'Agg Latin America',
+        'Argentina', 'Brazil', 'Chile', 'Colombia', 'Agg Middle East & Africa',
+        'Israel', 'South Africa'
+    ]
+    date_region_sales = {}
+    for region in regions:
+        region_dict = dict(
+            zip(
+                sales_data["date(offset)"],
+                sales_data[region]
+            )
+        )
+        date_region_sales[region] = region_dict
+
+
+    # finally, create new columns
+    # iterate over rows
+    rel_df_nona.loc[:, "retail_sales"] = rel_df_nona.apply(
+        lambda x: date_region_sales[x["region"]][x["Date"]] if x["Date"] <= max_date else None, axis=1
+    )
+
+
+def process_cpi(cpi_df):
+    """Add date column to cpi data frame
+
+    Args:
+        cpi_df (pd.DataFrame): consumer price index data frame
+    """
+
+    cpi_df.columns = [
+        col.strip() for col in cpi_df.columns
+    ]
+
+    cpi_df.columns = ['MonthYear', 'Agg North America', 'U.S.', 'Canada', 'Mexico',
+        'Agg Western Europe', 'Austria', 'Belgium', 'Cyprus', 'Denmark',
+        'Euro Area', 'Finland', 'France', 'Germany', 'Greece', 'Iceland',
+        'Ireland', 'Italy', 'Luxembourg', 'Malta', 'Netherlands', 'Norway',
+        'Portugal', 'Spain', 'Sweden', 'Switzerland', 'U.K.',
+        'Agg Asia Pacific', 'Australia', 'China', 'India*', 'Indonesia',
+        'Japan', 'Philippines', 'Singapore', 'South Korea', 'Taiwan',
+        'Thailand', 'Agg Latin America', 'Argentina', 'Brazil',
+        'Chile', 'Colombia', 'Peru', 'Agg Eastern Europe', 'Bulgaria',
+        'Croatia', 'Czech Republic', 'Estonia', 'Hungary', 'Latvia',
+        'Lithuania', 'Poland', 'Romania', 'Russia', 'Serbia', 'Slovakia',
+        'Slovenia', 'Turkey', 'Agg Middle East & Africa', 'Egypt', 'Iraq',
+        'Israel', 'South Africa']
+
+    cpi_df.loc[:, "date"] = cpi_df["MonthYear"].apply(
+        lambda x: datetime.datetime.strptime(
+            x, "%m/%Y"
+        )
+    )
+
+    cpi_df.loc[:, "date(offset)"] = cpi_df['date']
+
+
+def align_cpi(cpi_df, rel_df_nona):
+    """Align cpi data with schedule data
+
+    Args:
+        cpi_df (pd.DataFrame): consumer price index data frame
+        rel_df_nona (pd.DataFrame): reliability schdule data frame
+    """
+
+    regions_cpi = ['Agg North America', 'U.S.', 'Canada', 'Mexico',
+       'Agg Western Europe', 'Austria', 'Belgium', 'Cyprus', 'Denmark',
+       'Euro Area', 'Finland', 'France', 'Germany', 'Greece', 'Iceland',
+       'Ireland', 'Italy', 'Luxembourg', 'Malta', 'Netherlands', 'Norway',
+       'Portugal', 'Spain', 'Sweden', 'Switzerland', 'U.K.',
+       'Agg Asia Pacific', 'Australia', 'China', 'India*', 'Indonesia',
+       'Japan', 'Philippines', 'Singapore', 'South Korea', 'Taiwan',
+       'Thailand', 'Agg Latin America', 'Argentina', 'Brazil',
+       'Chile', 'Colombia', 'Peru', 'Agg Eastern Europe', 'Bulgaria',
+       'Croatia', 'Czech Republic', 'Estonia', 'Hungary', 'Latvia',
+       'Lithuania', 'Poland', 'Romania', 'Russia', 'Serbia', 'Slovakia',
+       'Slovenia', 'Turkey', 'Agg Middle East & Africa', 'Egypt', 'Iraq',
+       'Israel', 'South Africa']
+
+
+    date_region_cpi = {}
+    for region in regions_cpi:
+        region_dict = dict(
+            zip(
+                cpi_df["date(offset)"],
+                cpi_df[region]
+            )
+        )
+
+        date_region_cpi[region] = region_dict
+
+
+    # calculate max date to avoid index error
+    max_date = cpi_df["date(offset)"].max()
+
+    rel_df_nona.loc[:, "cpi"] = rel_df_nona.apply(
+        lambda x: date_region_cpi[x["region"]][x["Date"]] if x["Date"] <= max_date else None, axis=1
+    )
 
 
 def load_excel_data(config: dict, data_name: str):
@@ -328,6 +582,7 @@ def get_reg_train_test(
             "Service",
             "Trade",
             "retail_sales",
+            "cpi",
             f"{label}_train",
             f"{label}(std)_train",
             f"{label}_min_train",
@@ -347,7 +602,7 @@ def get_train_wt_avg(
     label="Avg_TTDays",
     agg_fun=weighted_average_ser
 ):
-    """_summary_
+    """Return data frame weighted aggregated indexed by Carrier, Service, POD, and POL columns
 
     Args:
         rel_df_nona (pd.DataFrame): shipping schedule data + features
