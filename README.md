@@ -17,11 +17,14 @@ The command above will install necessary dependencies and packages found inside 
 
     > bl_get_preds -h
 
-    usage: bl_get_preds [-h] [-p PATH_TO_DATA] [-f CSV_FILENAME]
+    usage: bl_get_preds [-h] [-p PATH_TO_DATA] [-t TEST_SIZE] [--replace_nulls REPLACE_NULLS]
+                    [-f CSV_FILENAME]
 
     optional arguments:
     -h, --help            show this help message and exit
     -p PATH_TO_DATA, --path_to_data PATH_TO_DATA
+    -t TEST_SIZE, --test_size TEST_SIZE
+    --replace_nulls REPLACE_NULLS
     -f CSV_FILENAME, --csv_filename CSV_FILENAME
 
 ### ONTIME
