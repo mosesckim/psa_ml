@@ -27,6 +27,13 @@ The command above will install necessary dependencies and packages found inside 
     --replace_nulls REPLACE_NULLS
     -f CSV_FILENAME, --csv_filename CSV_FILENAME
 
+Before using the CLI above, make sure to store either `ALLML2022.csv` or `BDP cleaned full Plant Code.xlsx` in `bl_rec/data/`. Then, from the project root, run
+
+    bl_get_preds
+
+in your terminal (command will use the default script params).
+
+
 ### ONTIME
 
     > ontime_evaluate -h
@@ -46,3 +53,8 @@ The command above will install necessary dependencies and packages found inside 
     --label LABEL
     --partial_pred PARTIAL_PRED
     --overall_pred OVERALL_PRED
+
+Similarly, place files `2022-11-29TableMapping_Reliability-SCHEDULE_RELIABILITY_PP.csv`, `retail Sales 202210.xlsx`, and `CPI Core 202210.xlsx` in the `ontime/data/` directory and run
+
+    ontime_evaluate
+
