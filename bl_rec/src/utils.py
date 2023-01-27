@@ -28,7 +28,8 @@ def get_preds(
     df: pd.DataFrame,
     ff_fields=["PortofLoadID", "LetterofCreditClause", "PlantCode", "CONO"],
     uf_fields=["ExporterAddressCode"],
-    test_size=0.1    # TODO: add to config params
+    test_size=0.1,
+    replace_nulls=False
 ):
     """Evaluate probabilistic model on random split
 
@@ -37,6 +38,7 @@ def get_preds(
         ff_fields (list, optional): conditional fields list. Defaults to ["PortofLoadID", "LetterofCreditClause", "PlantCode", "CONO"].
         uf_fields (list, optional): target field list. Defaults to ["ExporterAddressCode"].
         test_size (float, optional): test size percentage. Defaults to 0.1
+        replace_nulls (bool, optional): whether to replace or drop nulls. Defaults to False
 
     Returns:
         tuple: dataframe, series corresp. to predictions and evaluation stats
@@ -45,8 +47,10 @@ def get_preds(
     ffuf_eg_df = df[ff_fields + uf_fields]
 
     # instead of dropping NA rows we replace NAs with the string "null"
-    # ffuf_eg_df_no_na = ffuf_eg_df.fillna("null")  # TODO: include as config param
-    ffuf_eg_df_no_na = ffuf_eg_df.dropna()  # TODO: add relevant config param
+    if replace_nulls:
+        ffuf_eg_df_no_na = ffuf_eg_df.fillna("null")
+    else:
+        ffuf_eg_df_no_na = ffuf_eg_df.dropna()
 
     # compute total number of null rows
     total_no_rows = ffuf_eg_df.shape[0]
@@ -57,13 +61,6 @@ def get_preds(
 
     # TRAIN
     # build prob space on train data (with single target variable)
-
-    # need to make sure train rows have no nulls
-    # ffuf_train = ffuf_train[[ff_fields]]
-    # print("ffuf_train rows with nulls: ", ffuf_train.shape[0])
-    # ffuf_train.dropna(inplace=True)
-    # print("ffuf_train rows without nulls: ", ffuf_train.shape[0])
-
     ff_prob_sp = FFProbSpace(ffuf_train, ff_fields)
     ff_prob_sp.compute_prob_sp(uf_fields[0])
 
@@ -88,8 +85,6 @@ def get_preds(
 
     train_val_inputs_inter = train_inputs_set.intersection(val_inputs_set)
 
-    # TODO: find how many rows in val live inside train_val_inputs_inter
-
     # number of rows in this intersection
     input_tuple_ser = ffuf_eg_df_no_na.apply(
         lambda x: tuple((x[col] for col in ff_fields)),
@@ -108,10 +103,9 @@ def get_preds(
         pred_ser = ff_prob_sp.compute_cond_prob(input_tuple)
         max_prob = pred_ser.max()  # find max prob
 
-
         max_pred_val = pred_ser[pred_ser==max_prob].index[0]  # find value corresp. to max prob
         # make sure output is a string if not cast it
-        max_pred_val_str = str(max_pred_val)  # TODO: do the same on train data
+        max_pred_val_str = str(max_pred_val)
 
         preds.append(max_pred_val_str)
 

@@ -19,6 +19,9 @@ def main():
         "-t", "--test_size", default=0.1
     )
     parser.add_argument(
+        "--replace_nulls", default=False
+    )
+    parser.add_argument(
         "-f", "--csv_filename", default="ALLML2022.csv"
     )
     # old data filename-> "BDP cleaned full Plant Code.xlsx"
@@ -29,7 +32,7 @@ def main():
     path_to_data = args.path_to_data
     test_size = args.test_size
     bdp_file = args.csv_filename
-
+    replace_nulls= args.replace_nulls
 
     # read in file
     print("Reading input csv file...")
@@ -111,7 +114,8 @@ def main():
             bl_df,
             ff_fields=necessary_fields,
             uf_fields=[uf_field],
-            test_size=test_size
+            test_size=test_size,
+            replace_nulls=replace_nulls
         )[1]
 
 
