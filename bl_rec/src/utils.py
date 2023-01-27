@@ -30,14 +30,23 @@ def get_preds(
     uf_fields=["ExporterAddressCode"],
     test_size=0.1    # TODO: add to config params
 ):
+    """Evaluate probabilistic model on random split
+
+    Args:
+        df (pd.DataFrame): data frame containing fields ff_fields and uf_fields
+        ff_fields (list, optional): conditional fields list. Defaults to ["PortofLoadID", "LetterofCreditClause", "PlantCode", "CONO"].
+        uf_fields (list, optional): target field list. Defaults to ["ExporterAddressCode"].
+        test_size (float, optional): test size percentage. Defaults to 0.1
+
+    Returns:
+        tuple: dataframe, series corresp. to predictions and evaluation stats
+    """
 
     ffuf_eg_df = df[ff_fields + uf_fields]
 
     # instead of dropping NA rows we replace NAs with the string "null"
     # ffuf_eg_df_no_na = ffuf_eg_df.fillna("null")  # TODO: include as config param
     ffuf_eg_df_no_na = ffuf_eg_df.dropna()  # TODO: add relevant config param
-
-    print("Train data size: ", ffuf_eg_df.shape)
 
     # compute total number of null rows
     total_no_rows = ffuf_eg_df.shape[0]
