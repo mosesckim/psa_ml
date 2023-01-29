@@ -1,4 +1,4 @@
-name: Demo Python Workflow
+name: pep8 workflow
 on: [push]
 jobs:
   build:
