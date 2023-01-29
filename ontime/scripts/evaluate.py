@@ -9,56 +9,43 @@ from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 from sklearn.linear_model import LinearRegression
 
 from ontime.src.models import BaselineModel
-from ontime.src.utils import split_data, process_schedule_data, restrict_by_coverage, \
-    get_carr_serv_mask, get_reg_train_test, compute_eval_metrics, load_excel_data, \
-        align_port_call, process_sales, align_sales, process_cpi, align_cpi
+from ontime.src.utils import (
+    split_data,
+    process_schedule_data,
+    restrict_by_coverage,
+    get_carr_serv_mask,
+    get_reg_train_test,
+    compute_eval_metrics,
+    load_excel_data,
+    align_port_call,
+    process_sales,
+    align_sales,
+    process_cpi,
+    align_cpi,
+)
 
-pd.set_option('mode.chained_assignment', None)
+pd.set_option("mode.chained_assignment", None)
 
 
 def main():
 
     parser = argparse.ArgumentParser()
     # add args
-    parser.add_argument(
-        "-d", "--data_dir_path", default="ontime/data"
-    )
-    parser.add_argument(
-        "--split_month", default=8
-    )
-    parser.add_argument(
-        "--max_month", default=9
-    )
-    parser.add_argument(
-        "--label", default="Avg_TTDays"
-    )
-    parser.add_argument(
-        "--partial_pred", default=False
-    )
-    parser.add_argument(
-        "--overall_pred", default=True
-    )
-    parser.add_argument(
-        "--restrict_trade", default=False
-    )
-    parser.add_argument(
-        "--trade_option", default="Asia-North America West Coast"
-    )
-    parser.add_argument(
-        "--carrier_option", default="ANL"
-    )
-    parser.add_argument(
-        "--service_option", default="EPIC"
-    )
-    parser.add_argument(
-        "--eval_lin_reg", default=False
-    )
-    parser.add_argument(
-        "--include_reg", default=True
-    )
+    parser.add_argument("-d", "--data_dir_path", default="ontime/data")
+    parser.add_argument("--split_month", default=8)
+    parser.add_argument("--max_month", default=9)
+    parser.add_argument("--label", default="Avg_TTDays")
+    parser.add_argument("--partial_pred", default=False)
+    parser.add_argument("--overall_pred", default=True)
+    parser.add_argument("--restrict_trade", default=False)
+    parser.add_argument("--trade_option", default="Asia-North America West Coast")
+    parser.add_argument("--carrier_option", default="ANL")
+    parser.add_argument("--service_option", default="EPIC")
+    parser.add_argument("--eval_lin_reg", default=False)
+    parser.add_argument("--include_reg", default=True)
     parser.add_argument(
         "--schedule_filename",
-        default="2022-11-29TableMapping_Reliability-SCHEDULE_RELIABILITY_PP.csv"
+        default="2022-11-29TableMapping_Reliability-SCHEDULE_RELIABILITY_PP.csv",
     )
 
     # parse
@@ -81,36 +68,23 @@ def main():
 
     schedule_filename = args.schedule_filename
 
-
     # TODO: add config params to parser
     # DATA
     config = {
         "data_path": "ontime/data",
-        "port_call": {
-            "filename": "IHS_PORT_PERFORMANCE.xlsx",
-            "sheet": "Sheet1"
-        },
-        "sales": {
-            "filename": "Retail Sales 202210.xlsx",
-            "sheet": "Sales"
-        },
-        "cpi": {
-            "filename": "CPI Core 202210.xlsx",
-            "sheet": "Core CPI"
-        },
+        "port_call": {"filename": "IHS_PORT_PERFORMANCE.xlsx", "sheet": "Sheet1"},
+        "sales": {"filename": "Retail Sales 202210.xlsx", "sheet": "Sales"},
+        "cpi": {"filename": "CPI Core 202210.xlsx", "sheet": "Core CPI"},
         "air_freight": {
             "filename": "AirFrieght total Rate USD per 1000kg Shanghai to Los angeles.xlsx",
-            "sheet": "Sheet1"
-        }
+            "sheet": "Sheet1",
+        },
     }
 
     print("Loading data...")
 
     # shipping schedule data
-    rel_path = os.path.join(
-        data_dir,
-        schedule_filename
-    )
+    rel_path = os.path.join(data_dir, schedule_filename)
     schedule_data = pd.read_csv(rel_path)
     # # port call data
     # port_data = load_excel_data(config, "port_call")
@@ -131,7 +105,7 @@ def main():
 
     # restrict trade
     if restrict_trade:
-        rel_df_nona = rel_df_nona[rel_df_nona["Trade"]==trade_option]
+        rel_df_nona = rel_df_nona[rel_df_nona["Trade"] == trade_option]
 
     # retail sales
     process_sales(sales_data, rel_df_nona)
@@ -150,7 +124,9 @@ def main():
 
     # train_df rows have unique POD, POL, Carrier, Service columns values
     # val_res rows don't  TODO: add this in func description
-    train_df, val_res = split_data(rel_df_nona, datetime_split, max_month=max_date.month)
+    train_df, val_res = split_data(
+        rel_df_nona, datetime_split, max_month=max_date.month
+    )
 
     val_X = val_res[["Carrier", "Service", "POD", "POL"]]
     val_y = val_res[label]
@@ -159,12 +135,13 @@ def main():
     val_X_filtered = val_X.copy()
     val_y_filtered = val_y.copy()
 
-
     # EVALUATION
 
     if partial_pred:
         # train
-        train_mask = get_carr_serv_mask(train_df_filtered, carrier_option, service_option)
+        train_mask = get_carr_serv_mask(
+            train_df_filtered, carrier_option, service_option
+        )
         train_df_filtered = train_df_filtered[train_mask]
         # val
         val_mask = get_carr_serv_mask(val_X_filtered, carrier_option, service_option)
@@ -172,8 +149,7 @@ def main():
         val_y_filtered = val_y_filtered[val_mask]
 
     if val_X_filtered.shape[0] == 0 or train_df_filtered.shape[0] == 0:
-        raise Exception('Insufficient data, pease choose another split')
-
+        raise Exception("Insufficient data, pease choose another split")
 
     # linear regression
     if include_reg and overall_pred:
@@ -186,10 +162,7 @@ def main():
 
         # linear regression split (retail)
         train_X_rg_ret, train_y_rg_ret, val_X_rg_ret, val_y_rg_ret = get_reg_train_test(
-            rel_df_nona,
-            datetime_split,
-            label=label,
-            use_retail=True
+            rel_df_nona, datetime_split, label=label, use_retail=True
         )
 
         # # TODO: include in pytest
@@ -200,23 +173,28 @@ def main():
             # evaluate linear regression
             linreg = LinearRegression()
 
-            train_mae_rg_ret, train_mape_rg_ret, \
-                val_mae_rg_ret, val_mape_rg_ret, val_mae_over_rg_ret, val_mape_over_rg_ret, \
-                    result_df_rg_ret = compute_eval_metrics(
+            (
+                train_mae_rg_ret,
+                train_mape_rg_ret,
+                val_mae_rg_ret,
+                val_mape_rg_ret,
+                val_mae_over_rg_ret,
+                val_mape_over_rg_ret,
+                result_df_rg_ret,
+            ) = compute_eval_metrics(
                 linreg,
                 train_X_rg_ret,
                 val_X_rg_ret,
                 train_y_rg_ret,
                 val_y_rg_ret,
                 include_overestimates=True,
-                label=label
+                label=label,
             )
 
             eval_lin_reg = True
 
         except:
             raise Exception("Not enough data. Choose a different split")
-
 
         # instantiate baseline model
         base_model = BaselineModel()
@@ -225,10 +203,8 @@ def main():
         preds, preds_std = base_model.predict(val_X_filtered)
         preds_array, preds_std_array = list(map(lambda x: x.values, [preds, preds_std]))
 
-
         nonzero_mask = val_y_filtered != 0  # for mape computation
         nonzero_mask = nonzero_mask.reset_index()[label]
-
 
         if sum(nonzero_mask) != 0:
 
@@ -257,13 +233,14 @@ def main():
                 preds_array_under = preds_array[mask]
                 val_y_values_under = val_gt[mask]
                 mae_under = mean_absolute_error(preds_array_under, val_y_values_under)
-                mape_under = mean_absolute_percentage_error(val_y_values_under, preds_array_under)
+                mape_under = mean_absolute_percentage_error(
+                    val_y_values_under, preds_array_under
+                )
                 mae_under = round(mae_under, 3)
                 mape_under = round(mape_under, 3)
             else:
                 mae_under = "NA"
                 mape_under = "NA"
-
 
             print("Predictions")
             df_preds = val_X_filtered.copy()
@@ -278,7 +255,6 @@ def main():
         raise Exception("Not enough data. Choose a different split")
 
     print("baseline mape: ", baseline_mape)
-
 
 
 if __name__ == "__main__":

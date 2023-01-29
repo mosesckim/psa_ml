@@ -2,8 +2,7 @@ import pandas as pd
 
 
 class FFProbSpace:
-    """Probability space conditioned on filled-in fields
-    """
+    """Probability space conditioned on filled-in fields"""
 
     def __init__(self, df: pd.DataFrame, ff_cols=[]):
         """Constructor
@@ -24,9 +23,7 @@ class FFProbSpace:
             uf_col (str, optional): target column variable. Defaults to "".
         """
 
-        self.prob_sp = self.ff_groups.apply(
-            lambda x: dict(x[uf_col].value_counts())
-        )
+        self.prob_sp = self.ff_groups.apply(lambda x: dict(x[uf_col].value_counts()))
 
     def compute_cond_prob(self, ff_values=()):
         """Compute probability values conditioned on a given set of filled-in values

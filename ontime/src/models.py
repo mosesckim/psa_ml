@@ -27,8 +27,7 @@ class BaselineModel:
     """
 
     def __init__(self):
-        """Baseline model class constructor
-        """
+        """Baseline model class constructor"""
         self.train_df = None
         self.label = None
 
@@ -40,14 +39,21 @@ class BaselineModel:
             label (str, optional): Target label. Defaults to "OnTime_Reliability".
         """
         # TODO: perform column existence check
-        train_on_time_rel_by_carr_ser = train[[
-            "Carrier", "Service", "POD", "POL", label
-        ]].groupby(["Carrier", "Service", "POD", "POL"]).apply(
-            lambda x: (weighted_average_ser(x[label].values), x[label].values.std())
-        ).reset_index()
+        train_on_time_rel_by_carr_ser = (
+            train[["Carrier", "Service", "POD", "POL", label]]
+            .groupby(["Carrier", "Service", "POD", "POL"])
+            .apply(
+                lambda x: (weighted_average_ser(x[label].values), x[label].values.std())
+            )
+            .reset_index()
+        )
 
-        train_on_time_rel_by_carr_ser.loc[:, f"{label}"] = train_on_time_rel_by_carr_ser[0].apply(lambda x: x[0])
-        train_on_time_rel_by_carr_ser.loc[:, f"{label}(std)"] = train_on_time_rel_by_carr_ser[0].apply(lambda x: x[1])
+        train_on_time_rel_by_carr_ser.loc[
+            :, f"{label}"
+        ] = train_on_time_rel_by_carr_ser[0].apply(lambda x: x[0])
+        train_on_time_rel_by_carr_ser.loc[
+            :, f"{label}(std)"
+        ] = train_on_time_rel_by_carr_ser[0].apply(lambda x: x[1])
 
         train_on_time_rel_by_carr_ser.drop(0, axis=1, inplace=True)
 
@@ -69,8 +75,10 @@ class BaselineModel:
 
         # apply mask
         pred = self.train_df[
-            (self.train_df["Carrier"]==carrier) & (self.train_df["Service"]==service) & \
-            (self.train_df["POD"]==pod) & (self.train_df["POL"]==pol)
+            (self.train_df["Carrier"] == carrier)
+            & (self.train_df["Service"] == service)
+            & (self.train_df["POD"] == pod)
+            & (self.train_df["POL"] == pol)
         ]
 
         # predict label
@@ -91,10 +99,7 @@ class BaselineModel:
         """
 
         # merge train data
-        preds = test_data.merge(
-            self.train_df,
-            on=["Carrier", "Service", "POD", "POL"]
-        )
+        preds = test_data.merge(self.train_df, on=["Carrier", "Service", "POD", "POL"])
 
         label_preds = preds[self.label]
         label_preds_std = preds[f"{self.label}(std)"]

@@ -15,12 +15,7 @@ def get_input_tuples(df: pd.DataFrame, cols=[]):
         list: list of tuples where each entry corresponds to a column value
     """
 
-
-    input_tuples = list(
-        zip(
-            *[df[col] for col in cols]
-        )
-    )
+    input_tuples = list(zip(*[df[col] for col in cols]))
     return input_tuples
 
 
@@ -29,7 +24,7 @@ def get_preds(
     ff_fields=["PortofLoadID", "LetterofCreditClause", "PlantCode", "CONO"],
     uf_fields=["ExporterAddressCode"],
     test_size=0.1,
-    replace_nulls=False
+    replace_nulls=False,
 ):
     """Evaluate probabilistic model on random split
 
@@ -57,7 +52,7 @@ def get_preds(
     total_field_null_rows = ffuf_eg_df.shape[0] - ffuf_eg_df_no_na.shape[0]
 
     # train, test split
-    ffuf_train , ffuf_val = train_test_split(ffuf_eg_df_no_na, test_size=test_size)
+    ffuf_train, ffuf_val = train_test_split(ffuf_eg_df_no_na, test_size=test_size)
 
     # TRAIN
     # build prob space on train data (with single target variable)
@@ -70,12 +65,13 @@ def get_preds(
     # let's see how many values ExporterAddressCode train and val have in common
     target_train_unique = ffuf_train[uf_fields[0]].unique()
     target_val_unique = ffuf_val[uf_fields[0]].unique()
-    target_train_val_inter = set(target_train_unique).intersection(set(target_val_unique))
+    target_train_val_inter = set(target_train_unique).intersection(
+        set(target_val_unique)
+    )
 
     # so we restrict the validation set further
     # to include the intersection field values only
     ffuf_val_res = ffuf_val[ffuf_val[uf_fields[0]].isin(target_train_val_inter)]
-
 
     # COMMON INPUT VALUES
     train_inputs = get_input_tuples(ffuf_train, cols=ff_fields)
@@ -87,8 +83,7 @@ def get_preds(
 
     # number of rows in this intersection
     input_tuple_ser = ffuf_eg_df_no_na.apply(
-        lambda x: tuple((x[col] for col in ff_fields)),
-        axis=1
+        lambda x: tuple((x[col] for col in ff_fields)), axis=1
     )
 
     mask = input_tuple_ser.isin(train_val_inputs_inter)
@@ -103,24 +98,18 @@ def get_preds(
         pred_ser = ff_prob_sp.compute_cond_prob(input_tuple)
         max_prob = pred_ser.max()  # find max prob
 
-        max_pred_val = pred_ser[pred_ser==max_prob].index[0]  # find value corresp. to max prob
+        max_pred_val = pred_ser[pred_ser == max_prob].index[
+            0
+        ]  # find value corresp. to max prob
         # make sure output is a string if not cast it
         max_pred_val_str = str(max_pred_val)
 
         preds.append(max_pred_val_str)
 
-
     # PREDICTIONS
     cols_list = list(zip(*train_val_inputs_inter))
 
-    pred_df = pd.DataFrame(
-        dict(
-            zip(
-                ff_fields + ["pred"],
-                cols_list + [preds]
-            )
-        )
-    )
+    pred_df = pd.DataFrame(dict(zip(ff_fields + ["pred"], cols_list + [preds])))
 
     # ACCURACY
     # merge dataframes
@@ -140,7 +129,8 @@ def get_preds(
         "ffuf_val.shape": ffuf_val.shape,
         "ffuf_val_res.shape": ffuf_val_res.shape,
         "train coverage in val": ffuf_val_res.shape[0] / ffuf_val.shape[0],
-        "train coverage in val (input)": len(train_val_inputs_inter) / len(val_inputs_set),
+        "train coverage in val (input)": len(train_val_inputs_inter)
+        / len(val_inputs_set),
         "len(train_inputs)": len(train_inputs),
         "len(val_inputs)": len(val_inputs),
         "train_inputs_unique": len(train_inputs_set),
@@ -150,7 +140,6 @@ def get_preds(
         "not null val input percentage": total_train_test_rows / total_no_rows,
         "null_perc": total_field_null_rows / total_no_rows,
         "accuracy": acc,
-
     }
 
     ser_stats = pd.Series(ser_stats_input)
