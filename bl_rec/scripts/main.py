@@ -1,6 +1,6 @@
 import os
 import tqdm
-import argparse
+import argparse, configparser
 
 import pandas as pd
 
@@ -11,10 +11,14 @@ def main():
     """Script main method to generate predictions on a random split"""
     parser = argparse.ArgumentParser()
     # add args
+    parser.add_argument("-c", "--config_file_path", type=str, help='Config file')
     parser.add_argument("-p", "--path_to_data", default="bl_rec/data")
     parser.add_argument("-t", "--test_size", default=0.1)
     parser.add_argument("--replace_nulls", default=False)
     parser.add_argument("-f", "--csv_filename", default="ALLML2022.csv")
+    # lane
+    parser.add_argument("-l", "--necessary_fields", default=[])
+
     # old data filename-> "BDP cleaned full Plant Code.xlsx"
 
     # parse
@@ -23,6 +27,20 @@ def main():
     test_size = args.test_size
     bdp_file = args.csv_filename
     replace_nulls = args.replace_nulls
+
+    # parse config file and overwrite
+    if args.config_file_path:
+        config = configparser.ConfigParser()
+        config.read(args.config_file_path)
+        defaults = {}
+        defaults.update(dict(config.items("lane")))
+        parser.set_defaults(**defaults)
+        args = parser.parse_args() # overwrite arguments
+
+
+    # lane and target fields
+    necessary_fields = eval(args.necessary_fields)
+    unfilled_fields = eval(args.unfilled_fields)
 
     # read in file
     print("Reading input csv file...")
@@ -33,66 +51,6 @@ def main():
         bl_df = pd.read_csv(bdp_file_path, on_bad_lines="skip")
     else:
         bl_df = pd.read_excel(bdp_file_path, sheet_name="BDP December cleaned V2")
-
-    # old conditional and unfilled field groups
-    # necessary_fields = ['CONO', 'CustomerNumber', 'PlantCode', 'CargoTypeID',
-    #     'PortofLoadID', 'PortofDischarge',
-    #     'TarriffServiceCodeTMCCarrier', 'Typeofmove']
-    # we exclude some "comment" fields such as
-    # NotifyPartyExtraText
-    # unfilled_fields = ['CarrierAlphaCode',
-    #     'BLReleaseLocationID',
-    #     'OnBoardNotationClause', 'ExporterAddressCode', 'OnBoardNotation',
-    #     'DisplayExpressBillClause', 'MethodofTransportation', 'PlaceofReceipt',
-    #     'CountryUltimateDestination', 'CountryCode',
-    #     'Countryoforigindescription', 'LetterofCreditClause',
-    #     'PartiesofTransaction', 'AESConsigneeType',
-    #     'AESShipperAddressCode', 'ReleaseLocID',
-    #     'SEDClauses', 'Pointoforigincode', 'OnBoardClauseCode',
-    #     ]
-
-    # new data fields
-    # Company/country
-    # Customer account number
-    # Method of Transportation Code
-    # Tariff Service Code
-    # Place of Receipt ID
-    # Port of Load ID
-    # Port of Discharge ID
-    # Place of Delivery ID
-    # Product Name (Concat of unique product Names)
-    # EXPORTER ADDRESS Code
-    # BILLTO ADDRESS Code
-    # SHIPTO ADDRESS Code
-    # Freight Terms Code
-
-    # new
-    # lane group
-    unfilled_fields = [  # necessary_fields = [
-        "CountryCode",
-        "CONO",
-        "MethodofTransportation",
-        "TarriffServiceCodeTMCCarrier",
-        "PlaceofReceiptID",
-        "PortofLoadID",
-        "PortofDischargeID",
-        "PlaceofDeliveryID",
-        "PRODUCTS",
-        "ExporterAddressCode",
-        # 'NotifyPartyAddressCode', # bill to?
-        # 'AESConsigneeAddressCode', # bill to?
-        "FreightStatusID",  # freight termes code?
-    ]
-
-    # what is Seller-Related Indicator (Related or Non-related)?
-    # new
-    necessary_fields = [  # unfilled_fields = [
-        "AESConsigneeAddressCode",
-        "NotifyPartyAddressCode",
-        "AESConsigneeType",
-        "DisplayExpressBillClause",
-        "ReleaseLocID",
-    ]
 
     res = {}
 
