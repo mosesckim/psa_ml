@@ -17,21 +17,26 @@ The command above will install necessary dependencies and packages found inside 
 
     > bl_get_preds -h
 
-    usage: bl_get_preds [-h] [-p PATH_TO_DATA] [-t TEST_SIZE] [--replace_nulls REPLACE_NULLS]
-                    [-f CSV_FILENAME]
+    usage: bl_get_preds [-h] [-c CONFIG_FILE_PATH] [-p PATH_TO_DATA] [-t TEST_SIZE]
+                    [--replace_nulls REPLACE_NULLS] [-f CSV_FILENAME] [-n NECESSARY_FIELDS]
+                    [-u UNFILLED_FIELDS]
 
     optional arguments:
     -h, --help            show this help message and exit
+    -c CONFIG_FILE_PATH, --config_file_path CONFIG_FILE_PATH
+                            Config file
     -p PATH_TO_DATA, --path_to_data PATH_TO_DATA
     -t TEST_SIZE, --test_size TEST_SIZE
     --replace_nulls REPLACE_NULLS
     -f CSV_FILENAME, --csv_filename CSV_FILENAME
+    -n NECESSARY_FIELDS, --necessary_fields NECESSARY_FIELDS
+    -u UNFILLED_FIELDS, --unfilled_fields UNFILLED_FIELDS
 
 Before using the CLI above, make sure to store either `ALLML2022.csv` or `BDP cleaned full Plant Code.xlsx` in `bl_rec/data/`. Then, from the project root, run
 
-    bl_get_preds
+    bl_get_preds -c bl_rec/configs/lane.conf
 
-in your terminal (command will use the default script params).
+in your terminal (command will use the default script params). However, if you wish to run this script from a different path make sure to alter the corresponding params (i.e. `PATH_TO_DATA` and `CSV_FILENAME`) accordingly. To change default lane fields and target fields, please access the corresponding config file at `bl_rec/configs/lane.conf`.
 
 
 ### ONTIME
