@@ -43,8 +43,9 @@ in your terminal (command will use the default script params). However, if you w
 
     > ontime_evaluate -h
 
-    usage: ontime_evaluate [-h] [-d DATA_DIR_PATH] [--split_month SPLIT_MONTH] [--max_month MAX_MONTH]
-                       [--label LABEL] [--partial_pred PARTIAL_PRED] [--overall_pred OVERALL_PRED]
+    usage: ontime_evaluate [-h] [-c CONFIG_FILE_PATH] [-p CONFIG_PATH] [-d DATA_DIR_PATH]
+                       [--split_month SPLIT_MONTH] [--max_month MAX_MONTH] [--label LABEL]
+                       [--partial_pred PARTIAL_PRED] [--overall_pred OVERALL_PRED]
                        [--restrict_trade RESTRICT_TRADE] [--trade_option TRADE_OPTION]
                        [--carrier_option CARRIER_OPTION] [--service_option SERVICE_OPTION]
                        [--eval_lin_reg EVAL_LIN_REG] [--include_reg INCLUDE_REG]
@@ -52,13 +53,24 @@ in your terminal (command will use the default script params). However, if you w
 
     optional arguments:
     -h, --help            show this help message and exit
+    -c CONFIG_FILE_PATH, --config_file_path CONFIG_FILE_PATH
+    -p CONFIG_PATH, --config_path CONFIG_PATH
     -d DATA_DIR_PATH, --data_dir_path DATA_DIR_PATH
     --split_month SPLIT_MONTH
     --max_month MAX_MONTH
     --label LABEL
     --partial_pred PARTIAL_PRED
     --overall_pred OVERALL_PRED
+    --restrict_trade RESTRICT_TRADE
+    --trade_option TRADE_OPTION
+    --carrier_option CARRIER_OPTION
+    --service_option SERVICE_OPTION
+    --eval_lin_reg EVAL_LIN_REG
+    --include_reg INCLUDE_REG
+    --schedule_filename SCHEDULE_FILENAME
 
-Similarly, place files `2022-11-29TableMapping_Reliability-SCHEDULE_RELIABILITY_PP.csv`, `retail Sales 202210.xlsx`, and `CPI Core 202210.xlsx` in the `ontime/data/` directory and run
+Similarly, place files `2022-11-29TableMapping_Reliability-SCHEDULE_RELIABILITY_PP.csv`, `Retail Sales 202210.xlsx`, and `CPI Core 202210.xlsx` in the `ontime/data/` directory and run
 
     ontime_evaluate
+
+To change default paths and script params, please access the corresponding config files at `ontime/configs/eval.conf` and `ontime/configs/paths.yaml`, respectively.
