@@ -1,5 +1,6 @@
 import datetime
-import argparse
+import argparse, configparser
+import yaml
 import os
 
 import pandas as pd
@@ -33,6 +34,8 @@ def main():
 
     parser = argparse.ArgumentParser()
     # add args
+    parser.add_argument("-c", "--config_file_path", type=str, default="ontime/configs/eval.conf")
+    parser.add_argument("-p", "--config_path", type=str, default="ontime/configs/paths.yaml")
     parser.add_argument("-d", "--data_dir_path", default="ontime/data")
     parser.add_argument("--split_month", default=8)
     parser.add_argument("--max_month", default=9)
@@ -52,36 +55,40 @@ def main():
 
     # parse
     args = parser.parse_args()
+
+    # parse config file and overwrite
+    if args.config_file_path:
+        config = configparser.ConfigParser()
+        config.read(args.config_file_path)
+
+        defaults = {}
+        # read eval script params
+        defaults.update(dict(config.items("evaluate")))
+
+        parser.set_defaults(**defaults)
+        args = parser.parse_args() # overwrite arguments
+
+
     # data dir
     data_dir = args.data_dir_path
     # other params
-    split_month = args.split_month
+    split_month = int(args.split_month)
     label = args.label
-    partial_pred = args.partial_pred
-    overall_pred = args.overall_pred
+    partial_pred = eval(args.partial_pred)
+    overall_pred = eval(args.overall_pred)
 
-    restrict_trade = args.restrict_trade
+    restrict_trade = eval(args.restrict_trade)
     trade_option = args.trade_option
     carrier_option = args.carrier_option
     service_option = args.service_option
 
-    eval_lin_reg = args.eval_lin_reg
-    include_reg = args.include_reg
+    eval_lin_reg = eval(args.eval_lin_reg)
+    include_reg = eval(args.include_reg)
 
     schedule_filename = args.schedule_filename
 
-    # TODO: add config params to parser
-    # DATA
-    config = {
-        "data_path": "ontime/data",
-        "port_call": {"filename": "IHS_PORT_PERFORMANCE.xlsx", "sheet": "Sheet1"},
-        "sales": {"filename": "Retail Sales 202210.xlsx", "sheet": "Sales"},
-        "cpi": {"filename": "CPI Core 202210.xlsx", "sheet": "Core CPI"},
-        "air_freight": {
-            "filename": "AirFrieght total Rate USD per 1000kg Shanghai to Los angeles.xlsx",
-            "sheet": "Sheet1",
-        },
-    }
+    if args.config_path:
+        config = yaml.safe_load(open(args.config_path, 'r'))
 
     print("Loading data...")
 

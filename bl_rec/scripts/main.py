@@ -11,7 +11,7 @@ def main():
     """Script main method to generate predictions on a random split"""
     parser = argparse.ArgumentParser()
     # add args
-    parser.add_argument("-c", "--config_file_path", type=str, help='Config file')
+    parser.add_argument("-c", "--config_file_path", type=str, default="bl_rec/configs/lane.conf")
     parser.add_argument("-p", "--path_to_data", default="bl_rec/data")
     parser.add_argument("-t", "--test_size", default=0.1)
     parser.add_argument("--replace_nulls", default=False)
@@ -23,10 +23,6 @@ def main():
 
     # parse
     args = parser.parse_args()
-    path_to_data = args.path_to_data
-    test_size = args.test_size
-    bdp_file = args.csv_filename
-    replace_nulls = args.replace_nulls
 
     # parse config file and overwrite
     if args.config_file_path:
@@ -37,6 +33,11 @@ def main():
         parser.set_defaults(**defaults)
         args = parser.parse_args() # overwrite arguments
 
+    # path params
+    path_to_data = args.path_to_data
+    test_size = eval(args.test_size)
+    bdp_file = args.csv_filename
+    replace_nulls = eval(args.replace_nulls)
 
     # lane and target fields
     necessary_fields = eval(args.necessary_fields)
