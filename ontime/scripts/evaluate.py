@@ -8,6 +8,8 @@ import numpy as np
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 from sklearn.linear_model import LinearRegression
 
+from sklearn.ensemble import RandomForestRegressor
+
 from ontime.src.models import BaselineModel
 from ontime.src.utils import (
     split_data,
@@ -37,8 +39,8 @@ def main():
     parser.add_argument("--label", default="Avg_TTDays")
     parser.add_argument("--partial_pred", default=False)
     parser.add_argument("--overall_pred", default=True)
-    parser.add_argument("--restrict_trade", default=False)
-    parser.add_argument("--trade_option", default="Asia-North America West Coast")
+    parser.add_argument("--restrict_trade", default=True)
+    parser.add_argument("--trade_option", default="Asia-Europe") #"Asia-North America West Coast")
     parser.add_argument("--carrier_option", default="ANL")
     parser.add_argument("--service_option", default="EPIC")
     parser.add_argument("--eval_lin_reg", default=False)
@@ -90,6 +92,7 @@ def main():
     # port_data = load_excel_data(config, "port_call")
     # # air freight data (shanghai - lax)
     # air_freight_data = load_excel_data(config, "air_freight")
+
     # retail sales
     sales_data = load_excel_data(config, "sales")
     # cpi
@@ -154,54 +157,24 @@ def main():
     # linear regression
     if include_reg and overall_pred:
 
-        # TODO: automate date upper threshold given my macroeconimc feature data set
-        val_res = val_res[val_res["Date"] < datetime.datetime(2022, 9, 1)]
-
-        split_month = min(8, split_month)
-        datetime_split = datetime.datetime(2022, split_month, 1)
-
-        # linear regression split (retail)
-        train_X_rg_ret, train_y_rg_ret, val_X_rg_ret, val_y_rg_ret = get_reg_train_test(
-            rel_df_nona, datetime_split, label=label, use_retail=True
-        )
-
-        # # TODO: include in pytest
-        # print("val sales shape: ", val_X_rg_ret.shape)
-        # print("val res shape: ", val_res.shape)
-
-        try:
-            # evaluate linear regression
-            linreg = LinearRegression()
-
-            (
-                train_mae_rg_ret,
-                train_mape_rg_ret,
-                val_mae_rg_ret,
-                val_mape_rg_ret,
-                val_mae_over_rg_ret,
-                val_mape_over_rg_ret,
-                result_df_rg_ret,
-            ) = compute_eval_metrics(
-                linreg,
-                train_X_rg_ret,
-                val_X_rg_ret,
-                train_y_rg_ret,
-                val_y_rg_ret,
-                include_overestimates=True,
-                label=label,
-            )
-
-            eval_lin_reg = True
-
-        except:
-            raise Exception("Not enough data. Choose a different split")
-
         # instantiate baseline model
         base_model = BaselineModel()
         base_model.fit(train_df_filtered, label)
 
-        preds, preds_std = base_model.predict(val_X_filtered)
-        preds_array, preds_std_array = list(map(lambda x: x.values, [preds, preds_std]))
+        preds = []
+        preds_std = []
+        for ind, row in val_X_filtered.iterrows():
+            pred, pred_std = base_model.predict_(*row)
+
+            preds.append(pred)
+            preds_std.append(pred_std)
+
+        preds_array = np.array(preds)
+        preds_std_array = np.array(preds_std)
+
+        # parallelize prediction method
+        # preds, preds_std = base_model.predict(val_X_filtered)
+        # preds_array, preds_std_array = list(map(lambda x: x.values, [preds, preds_std]))
 
         nonzero_mask = val_y_filtered != 0  # for mape computation
         nonzero_mask = nonzero_mask.reset_index()[label]
@@ -242,15 +215,84 @@ def main():
                 mae_under = "NA"
                 mape_under = "NA"
 
-            print("Predictions")
+            print(f"Predictions: {trade_option}")
             df_preds = val_X_filtered.copy()
             df_preds.loc[:, "actual"] = val_y_filtered
             df_preds.loc[:, "pred"] = preds_array
             df_preds.loc[:, "error"] = preds_array - val_y_filtered
             df_preds.loc[:, "perc_error"] = (preds - val_y_filtered) / val_y_filtered
 
+
+
+
+        # TODO: automate date upper threshold given my macroeconimc feature data set
+        val_res = val_res[val_res["Date"] < datetime.datetime(2022, 9, 1)]
+
+        split_month = min(8, split_month)
+        datetime_split = datetime.datetime(2022, split_month, 1)
+
+        # linear regression split (retail)
+        train_X_rg_ret, train_y_rg_ret, val_X_rg_ret, val_y_rg_ret = get_reg_train_test(
+            rel_df_nona, datetime_split, label=label, use_retail=True
+        )
+
+        # # TODO: include in pytest
+        # print("val sales shape: ", val_X_rg_ret.shape)
+        # print("val res shape: ", val_res.shape)
+
+        try:
+            # evaluate linear regression
+            linreg = LinearRegression()
+
+            (
+                train_mae_rg_ret,
+                train_mape_rg_ret,
+                val_mae_rg_ret,
+                val_mape_rg_ret,
+                val_mae_over_rg_ret,
+                val_mape_over_rg_ret,
+                result_df_rg_ret,
+            ) = compute_eval_metrics(
+                linreg,
+                train_X_rg_ret,
+                val_X_rg_ret,
+                train_y_rg_ret,
+                val_y_rg_ret,
+                include_overestimates=True,
+                label=label,
+            )
+
+            eval_lin_reg = True
+
+            # random forests
+            rf = RandomForestRegressor()
+
+            (
+                train_mae_rf_ret,
+                train_mape_rf_ret,
+                val_mae_rf_ret,
+                val_mape_rf_ret,
+                val_mae_over_rf_ret,
+                val_mape_over_rf_ret,
+                result_df_rf_ret,
+            ) = compute_eval_metrics(
+                rf,
+                train_X_rg_ret,
+                val_X_rg_ret,
+                train_y_rg_ret,
+                val_y_rg_ret,
+                include_overestimates=True,
+                label=label,
+            )
+
+
+        except:
+            raise Exception("Not enough data. Choose a different split")
+
     if eval_lin_reg:
-        print("macro mape: ", val_mape_rg_ret)
+        print("macro mape (linear regression): ", val_mape_rg_ret)
+
+        print("macro mape (random forest): ", val_mape_rf_ret)
     else:
         raise Exception("Not enough data. Choose a different split")
 
