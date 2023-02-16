@@ -62,4 +62,3 @@ in your terminal (command will use the default script params). However, if you w
 Similarly, place files `2022-11-29TableMapping_Reliability-SCHEDULE_RELIABILITY_PP.csv`, `retail Sales 202210.xlsx`, and `CPI Core 202210.xlsx` in the `ontime/data/` directory and run
 
     ontime_evaluate
-
