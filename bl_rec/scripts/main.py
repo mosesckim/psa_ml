@@ -17,9 +17,9 @@ def main():
     parser.add_argument("--replace_nulls", default=False)
     parser.add_argument("-f", "--csv_filename", default="ALLML2022.csv")
     # lane
-    parser.add_argument("-l", "--necessary_fields", default=[])
-
-    # old data filename-> "BDP cleaned full Plant Code.xlsx"
+    parser.add_argument("-n", "--necessary_fields", default=[])
+    # target fields
+    parser.add_argument("-u", "--unfilled_fields", default=[])
 
     # parse
     args = parser.parse_args()
